@@ -25,9 +25,7 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "baseUrl": "./",
-    "paths": {
-      "@shared/*": ["./shared/*"]
-    }
+    // No path aliases needed
   },
   "include": [
     "server/**/*",
