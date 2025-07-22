@@ -60,9 +60,10 @@ export class AuthController {
         user: userResponse,
         token,
       });
+      return;
     } catch (error) {
       console.error("Registration error:", error);
-      res.status(500).json({ message: "Registration failed", error });
+      return res.status(500).json({ message: "Registration failed", error });
     }
   }
 
@@ -101,9 +102,10 @@ export class AuthController {
         user: userResponse,
         token,
       });
+      return;
     } catch (error) {
       console.error("Login error:", error);
-      res.status(500).json({ message: "Login failed", error });
+      return res.status(500).json({ message: "Login failed", error });
     }
   }
 
@@ -111,9 +113,9 @@ export class AuthController {
     try {
       // In a stateless JWT system, logout is handled client-side
       // You could implement token blacklisting here if needed
-      res.json({ message: "Logout successful" });
+      return res.json({ message: "Logout successful" });
     } catch (error) {
-      res.status(500).json({ message: "Logout failed", error });
+      return res.status(500).json({ message: "Logout failed", error });
     }
   }
 
@@ -149,10 +151,10 @@ export class AuthController {
         `,
       });
 
-      res.json({ message: "If the email exists, a reset link has been sent" });
+      return res.json({ message: "If the email exists, a reset link has been sent" });
     } catch (error) {
       console.error("Forgot password error:", error);
-      res.status(500).json({ message: "Failed to process request", error });
+      return res.status(500).json({ message: "Failed to process request", error });
     }
   }
 
@@ -173,10 +175,10 @@ export class AuthController {
       //   { password: hashedPassword, resetToken: null, resetTokenExpiry: null }
       // );
 
-      res.json({ message: "Password reset successful" });
+      return res.json({ message: "Password reset successful" });
     } catch (error) {
       console.error("Reset password error:", error);
-      res.status(500).json({ message: "Password reset failed", error });
+      return res.status(500).json({ message: "Password reset failed", error });
     }
   }
 
@@ -186,9 +188,9 @@ export class AuthController {
 
       // Implement email verification logic
       // For now, we'll return success
-      res.json({ message: "Email verified successfully" });
+      return res.json({ message: "Email verified successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Email verification failed", error });
+      return res.status(500).json({ message: "Email verification failed", error });
     }
   }
 
@@ -208,9 +210,9 @@ export class AuthController {
       // Generate new verification token and send email
       // Implementation here
 
-      res.json({ message: "Verification email sent" });
+      return res.json({ message: "Verification email sent" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to resend verification", error });
+      return res.status(500).json({ message: "Failed to resend verification", error });
     }
   }
 
@@ -249,13 +251,13 @@ export class AuthController {
         `,
       });
 
-      res.status(201).json({
+      return res.status(201).json({
         message: "Guest user created successfully",
         userId: guestUser._id,
       });
     } catch (error) {
       console.error("Guest user creation error:", error);
-      res.status(500).json({ message: "Failed to create guest user", error });
+      return res.status(500).json({ message: "Failed to create guest user", error });
     }
   }
 }

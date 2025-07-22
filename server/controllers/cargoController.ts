@@ -12,8 +12,9 @@ export class CargoController {
       await cargo.save();
 
       res.status(201).json(cargo);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to create cargo dispatch", error });
+      return res.status(500).json({ message: "Failed to create cargo dispatch", error });
     }
   }
 
@@ -43,8 +44,9 @@ export class CargoController {
         .sort({ createdAt: -1 });
 
       res.json(cargoItems);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch cargo dispatches", error });
+      return res.status(500).json({ message: "Failed to fetch cargo dispatches", error });
     }
   }
 
@@ -61,8 +63,9 @@ export class CargoController {
       }
 
       res.json(cargo);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch cargo dispatch", error });
+      return res.status(500).json({ message: "Failed to fetch cargo dispatch", error });
     }
   }
 
@@ -82,8 +85,9 @@ export class CargoController {
       }
 
       res.json(cargo);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to update cargo dispatch", error });
+      return res.status(500).json({ message: "Failed to update cargo dispatch", error });
     }
   }
 
@@ -96,8 +100,9 @@ export class CargoController {
         .sort({ createdAt: -1 });
 
       res.json(cargoItems);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch cargo by booking", error });
+      return res.status(500).json({ message: "Failed to fetch cargo by booking", error });
     }
   }
 
@@ -133,8 +138,9 @@ export class CargoController {
       });
 
       res.json(cargo);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to approve cargo", error });
+      return res.status(500).json({ message: "Failed to approve cargo", error });
     }
   }
 
@@ -158,8 +164,9 @@ export class CargoController {
       }
 
       res.json(cargo);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to reject cargo", error });
+      return res.status(500).json({ message: "Failed to reject cargo", error });
     }
   }
 
@@ -181,8 +188,9 @@ export class CargoController {
       }
 
       res.json(cargo);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to process cargo", error });
+      return res.status(500).json({ message: "Failed to process cargo", error });
     }
   }
 
@@ -204,8 +212,9 @@ export class CargoController {
       }
 
       res.json(cargo);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to complete cargo", error });
+      return res.status(500).json({ message: "Failed to complete cargo", error });
     }
   }
 
@@ -217,8 +226,9 @@ export class CargoController {
         .sort({ createdAt: -1 });
 
       res.json(cargoItems);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch submitted cargo", error });
+      return res.status(500).json({ message: "Failed to fetch submitted cargo", error });
     }
   }
 
@@ -230,8 +240,9 @@ export class CargoController {
         .sort({ createdAt: -1 });
 
       res.json(cargoItems);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch approved cargo", error });
+      return res.status(500).json({ message: "Failed to fetch approved cargo", error });
     }
   }
 
@@ -242,8 +253,9 @@ export class CargoController {
         .sort({ createdAt: -1 });
 
       res.json(cargoItems);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch processing cargo", error });
+      return res.status(500).json({ message: "Failed to fetch processing cargo", error });
     }
   }
 
@@ -254,8 +266,9 @@ export class CargoController {
         .sort({ createdAt: -1 });
 
       res.json(cargoItems);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch completed cargo", error });
+      return res.status(500).json({ message: "Failed to fetch completed cargo", error });
     }
   }
 }

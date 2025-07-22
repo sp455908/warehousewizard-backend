@@ -36,8 +36,9 @@ export class DeliveryController {
       });
 
       res.status(201).json(delivery);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to create delivery request", error });
+      return res.status(500).json({ message: "Failed to create delivery request", error });
     }
   }
 
@@ -67,8 +68,9 @@ export class DeliveryController {
         .sort({ createdAt: -1 });
 
       res.json(deliveries);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch delivery requests", error });
+      return res.status(500).json({ message: "Failed to fetch delivery requests", error });
     }
   }
 
@@ -91,8 +93,9 @@ export class DeliveryController {
       }
 
       res.json(delivery);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch delivery request", error });
+      return res.status(500).json({ message: "Failed to fetch delivery request", error });
     }
   }
 
@@ -113,8 +116,9 @@ export class DeliveryController {
       }
 
       res.json(delivery);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to update delivery request", error });
+      return res.status(500).json({ message: "Failed to update delivery request", error });
     }
   }
 
@@ -139,7 +143,7 @@ export class DeliveryController {
 
       // Send notification
       await notificationService.sendEmail({
-        to: delivery.customerId.email,
+        to: (delivery.customerId as any).email,
         subject: "Delivery Scheduled - Warehouse Wizard",
         html: `
           <h2>Delivery Scheduled</h2>
@@ -151,8 +155,9 @@ export class DeliveryController {
       });
 
       res.json(delivery);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to schedule delivery", error });
+      return res.status(500).json({ message: "Failed to schedule delivery", error });
     }
   }
 
@@ -175,8 +180,9 @@ export class DeliveryController {
       }
 
       res.json(delivery);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to assign driver", error });
+      return res.status(500).json({ message: "Failed to assign driver", error });
     }
   }
 
@@ -199,13 +205,14 @@ export class DeliveryController {
 
       // Send notification
       await notificationService.sendDeliveryNotification(
-        delivery.customerId.email,
+        (delivery.customerId as any).email,
         delivery.trackingNumber!
       );
 
       res.json(delivery);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to dispatch delivery", error });
+      return res.status(500).json({ message: "Failed to dispatch delivery", error });
     }
   }
 
@@ -229,7 +236,7 @@ export class DeliveryController {
 
       // Send completion notification
       await notificationService.sendEmail({
-        to: delivery.customerId.email,
+        to: (delivery.customerId as any).email,
         subject: "Delivery Completed - Warehouse Wizard",
         html: `
           <h2>Delivery Completed</h2>
@@ -242,8 +249,9 @@ export class DeliveryController {
       });
 
       res.json(delivery);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to complete delivery", error });
+      return res.status(500).json({ message: "Failed to complete delivery", error });
     }
   }
 
@@ -272,8 +280,9 @@ export class DeliveryController {
       };
 
       res.json(trackingInfo);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to track delivery", error });
+      return res.status(500).json({ message: "Failed to track delivery", error });
     }
   }
 
@@ -286,8 +295,9 @@ export class DeliveryController {
         .sort({ createdAt: -1 });
 
       res.json(deliveries);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch requested deliveries", error });
+      return res.status(500).json({ message: "Failed to fetch requested deliveries", error });
     }
   }
 
@@ -298,8 +308,9 @@ export class DeliveryController {
         .sort({ preferredDate: 1 });
 
       res.json(deliveries);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch scheduled deliveries", error });
+      return res.status(500).json({ message: "Failed to fetch scheduled deliveries", error });
     }
   }
 
@@ -310,8 +321,9 @@ export class DeliveryController {
         .sort({ updatedAt: -1 });
 
       res.json(deliveries);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch in-transit deliveries", error });
+      return res.status(500).json({ message: "Failed to fetch in-transit deliveries", error });
     }
   }
 
@@ -329,8 +341,9 @@ export class DeliveryController {
         .sort({ updatedAt: -1 });
 
       res.json(deliveries);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch delivered deliveries", error });
+      return res.status(500).json({ message: "Failed to fetch delivered deliveries", error });
     }
   }
 

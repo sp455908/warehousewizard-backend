@@ -10,8 +10,9 @@ export class UserController {
       const user = req.user!;
       const { password, ...userProfile } = user.toObject();
       res.json(userProfile);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch profile", error });
+      return res.status(500).json({ message: "Failed to fetch profile", error });
     }
   }
 
@@ -37,8 +38,9 @@ export class UserController {
 
       const { password, ...userProfile } = user.toObject();
       res.json(userProfile);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to update profile", error });
+      return res.status(500).json({ message: "Failed to update profile", error });
     }
   }
 
@@ -70,8 +72,9 @@ export class UserController {
       });
 
       res.json({ message: "Password changed successfully" });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to change password", error });
+      return res.status(500).json({ message: "Failed to change password", error });
     }
   }
 
@@ -103,8 +106,9 @@ export class UserController {
           pages: Math.ceil(total / parseInt(limit as string))
         }
       });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch users", error });
+      return res.status(500).json({ message: "Failed to fetch users", error });
     }
   }
 
@@ -118,8 +122,9 @@ export class UserController {
       }
 
       res.json(user);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch user", error });
+      return res.status(500).json({ message: "Failed to fetch user", error });
     }
   }
 
@@ -162,8 +167,9 @@ export class UserController {
       // Return user without password
       const { password, ...userResponse } = user.toObject();
       res.status(201).json(userResponse);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to create user", error });
+      return res.status(500).json({ message: "Failed to create user", error });
     }
   }
 
@@ -189,8 +195,9 @@ export class UserController {
       }
 
       res.json(user);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to update user", error });
+      return res.status(500).json({ message: "Failed to update user", error });
     }
   }
 
@@ -210,8 +217,9 @@ export class UserController {
       }
 
       res.json({ message: "User deleted successfully" });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete user", error });
+      return res.status(500).json({ message: "Failed to delete user", error });
     }
   }
 
@@ -224,8 +232,9 @@ export class UserController {
         .sort({ firstName: 1, lastName: 1 });
 
       res.json(users);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch users by role", error });
+      return res.status(500).json({ message: "Failed to fetch users by role", error });
     }
   }
 
@@ -255,8 +264,9 @@ export class UserController {
       });
 
       res.json(user);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to activate user", error });
+      return res.status(500).json({ message: "Failed to activate user", error });
     }
   }
 
@@ -281,8 +291,9 @@ export class UserController {
       }
 
       res.json(user);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to deactivate user", error });
+      return res.status(500).json({ message: "Failed to deactivate user", error });
     }
   }
 
@@ -313,8 +324,9 @@ export class UserController {
       });
 
       res.json(user);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to verify guest customer", error });
+      return res.status(500).json({ message: "Failed to verify guest customer", error });
     }
   }
 
@@ -328,8 +340,9 @@ export class UserController {
       .sort({ createdAt: -1 });
 
       res.json(guestCustomers);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch pending guest customers", error });
+      return res.status(500).json({ message: "Failed to fetch pending guest customers", error });
     }
   }
 }

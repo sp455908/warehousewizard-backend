@@ -1,26 +1,26 @@
-import { Router } from "express";
+import { Response, Router } from "express";
 import { quoteController } from "../controllers/quoteController";
-import { authenticateToken, authorizeRoles } from "../middleware/auth";
+import { AuthenticatedRequest, authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
 import { insertQuoteSchema } from "@shared/schema";
 import { quoteLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 
-// All quote routes require authentication
+// All quote routes require authenticationfix 
 router.use(authenticateToken);
 
 // Customer routes
 router.post(
   "/",
-  (req, res, next) => {
+  (req: AuthenticatedRequest, res: Response, next) => {
     console.log("[DEBUG] POST /api/quotes req.user:", req.user);
     console.log("[DEBUG] POST /api/quotes req.body:", req.body);
     next();
   },
   quoteLimiter,
   // Inject customerId from req.user into req.body before validation
-  (req, res, next) => {
+  (req: AuthenticatedRequest, res: Response, next) => {
     if (req.user && (req.user as any)._id) {
       req.body.customerId = (req.user as any)._id.toString();
     }

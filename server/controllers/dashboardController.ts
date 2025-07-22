@@ -36,8 +36,9 @@ export class DashboardController {
       }
 
       res.json(stats);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch dashboard stats", error });
+      return res.status(500).json({ message: "Failed to fetch dashboard stats", error });
     }
   }
 
@@ -59,8 +60,9 @@ export class DashboardController {
         recentBookings: bookings,
         recentInvoices: invoices,
       });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch customer dashboard", error });
+      return res.status(500).json({ message: "Failed to fetch customer dashboard", error });
     }
   }
 
@@ -80,8 +82,9 @@ export class DashboardController {
         processingQuotes,
         guestCustomers,
       });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch purchase support dashboard", error });
+      return res.status(500).json({ message: "Failed to fetch purchase support dashboard", error });
     }
   }
 
@@ -105,8 +108,9 @@ export class DashboardController {
         quotedQuotes,
         assignedWarehouses,
       });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch sales support dashboard", error });
+      return res.status(500).json({ message: "Failed to fetch sales support dashboard", error });
     }
   }
 
@@ -131,8 +135,9 @@ export class DashboardController {
         assignedQuotes,
         confirmedBookings,
       });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch warehouse dashboard", error });
+      return res.status(500).json({ message: "Failed to fetch warehouse dashboard", error });
     }
   }
 
@@ -155,8 +160,9 @@ export class DashboardController {
         confirmedBookings,
         pendingApprovals,
       });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch supervisor dashboard", error });
+      return res.status(500).json({ message: "Failed to fetch supervisor dashboard", error });
     }
   }
 
@@ -183,8 +189,9 @@ export class DashboardController {
         paidInvoices,
         overdueInvoices,
       });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch accounts dashboard", error });
+      return res.status(500).json({ message: "Failed to fetch accounts dashboard", error });
     }
   }
 
@@ -202,8 +209,9 @@ export class DashboardController {
         recentUsers,
         systemStats,
       });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch admin dashboard", error });
+      return res.status(500).json({ message: "Failed to fetch admin dashboard", error });
     }
   }
 
@@ -226,8 +234,9 @@ export class DashboardController {
       }
 
       res.json(activities);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch activities", error });
+      return res.status(500).json({ message: "Failed to fetch activities", error });
     }
   }
 
@@ -244,8 +253,9 @@ export class DashboardController {
       ]);
 
       res.json(analytics);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch quote analytics", error });
+      return res.status(500).json({ message: "Failed to fetch quote analytics", error });
     }
   }
 
@@ -262,8 +272,9 @@ export class DashboardController {
       ]);
 
       res.json(analytics);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch booking analytics", error });
+      return res.status(500).json({ message: "Failed to fetch booking analytics", error });
     }
   }
 
@@ -289,8 +300,9 @@ export class DashboardController {
       ]);
 
       res.json(revenue);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch revenue analytics", error });
+      return res.status(500).json({ message: "Failed to fetch revenue analytics", error });
     }
   }
 

@@ -7,8 +7,8 @@ import { z } from "zod";
 const quoteSearchSchema = z.object({
   status: z.string().optional(),
   storageType: z.string().optional(),
-  page: z.string().transform(val => parseInt(val) || 1).default('1'),
-  limit: z.string().transform(val => parseInt(val) || 20).default('20'),
+  page: z.preprocess(val => parseInt(val as string, 10), z.number().default(1)),
+  limit: z.preprocess(val => parseInt(val as string, 10), z.number().default(20)),
   sortBy: z.string().default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
@@ -23,11 +23,12 @@ export class QuoteController {
       
       const quote = await quoteService.createQuote(quoteData);
       res.status(201).json(quote);
+      return;
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid quote data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid quote data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to create quote", error });
+      return res.status(500).json({ message: "Failed to create quote", error });
     }
   }
 
@@ -52,8 +53,9 @@ export class QuoteController {
       }
 
       res.json(quotes);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch quotes", error });
+      return res.status(500).json({ message: "Failed to fetch quotes", error });
     }
   }
 
@@ -73,8 +75,9 @@ export class QuoteController {
       }
 
       res.json(quote);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch quote", error });
+      return res.status(500).json({ message: "Failed to fetch quote", error });
     }
   }
 
@@ -90,8 +93,9 @@ export class QuoteController {
       }
       
       res.json(quote);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to update quote", error });
+      return res.status(500).json({ message: "Failed to update quote", error });
     }
   }
 
@@ -112,8 +116,9 @@ export class QuoteController {
       }
       
       res.json(quote);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to assign quote", error });
+      return res.status(500).json({ message: "Failed to assign quote", error });
     }
   }
 
@@ -134,8 +139,9 @@ export class QuoteController {
       }
       
       res.json(quote);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to approve quote", error });
+      return res.status(500).json({ message: "Failed to approve quote", error });
     }
   }
 
@@ -151,8 +157,9 @@ export class QuoteController {
       }
       
       res.json(quote);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to reject quote", error });
+      return res.status(500).json({ message: "Failed to reject quote", error });
     }
   }
 
@@ -161,8 +168,9 @@ export class QuoteController {
       const user = req.user!;
       const quotes = await quoteService.getQuotesForRole(user.role, user._id.toString());
       res.json(quotes);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch quotes for role", error });
+      return res.status(500).json({ message: "Failed to fetch quotes for role", error });
     }
   }
 
@@ -176,8 +184,9 @@ export class QuoteController {
       }
       
       res.json({ estimatedPrice: price });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to calculate quote price", error });
+      return res.status(500).json({ message: "Failed to calculate quote price", error });
     }
   }
 
@@ -186,8 +195,9 @@ export class QuoteController {
     try {
       const quotes = await quoteService.getQuotesByStatus("pending");
       res.json(quotes);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch pending quotes", error });
+      return res.status(500).json({ message: "Failed to fetch pending quotes", error });
     }
   }
 
@@ -195,8 +205,9 @@ export class QuoteController {
     try {
       const quotes = await quoteService.getQuotesByStatus("processing");
       res.json(quotes);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch processing quotes", error });
+      return res.status(500).json({ message: "Failed to fetch processing quotes", error });
     }
   }
 
@@ -204,8 +215,9 @@ export class QuoteController {
     try {
       const quotes = await quoteService.getQuotesByStatus("quoted");
       res.json(quotes);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch quoted quotes", error });
+      return res.status(500).json({ message: "Failed to fetch quoted quotes", error });
     }
   }
 }

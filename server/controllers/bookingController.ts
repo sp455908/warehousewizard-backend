@@ -32,8 +32,9 @@ export class BookingController {
       );
 
       res.status(201).json(booking);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to create booking", error });
+      return res.status(500).json({ message: "Failed to create booking", error });
     }
   }
 
@@ -61,8 +62,9 @@ export class BookingController {
       }
 
       res.json(bookings);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch bookings", error });
+      return res.status(500).json({ message: "Failed to fetch bookings", error });
     }
   }
 
@@ -81,13 +83,14 @@ export class BookingController {
 
       // Check permissions
       const user = req.user!;
-      if (user.role === "customer" && booking.customerId._id.toString() !== user._id.toString()) {
+      if (user.role === "customer" && (booking.customerId as any)._id.toString() !== user._id.toString()) {
         return res.status(403).json({ message: "Access denied" });
       }
 
       res.json(booking);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch booking", error });
+      return res.status(500).json({ message: "Failed to fetch booking", error });
     }
   }
 
@@ -108,8 +111,9 @@ export class BookingController {
       }
 
       res.json(booking);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to update booking", error });
+      return res.status(500).json({ message: "Failed to update booking", error });
     }
   }
 
@@ -138,13 +142,14 @@ export class BookingController {
 
       // Send confirmation notification
       await notificationService.sendBookingConfirmationNotification(
-        booking.customerId.email,
+        (booking.customerId as any).email,
         booking._id.toString()
       );
 
       res.json(booking);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to confirm booking", error });
+      return res.status(500).json({ message: "Failed to confirm booking", error });
     }
   }
 
@@ -168,7 +173,7 @@ export class BookingController {
 
       // Send cancellation notification
       await notificationService.sendEmail({
-        to: booking.customerId.email,
+        to: (booking.customerId as any).email,
         subject: "Booking Cancelled - Warehouse Wizard",
         html: `
           <h2>Booking Cancelled</h2>
@@ -179,8 +184,9 @@ export class BookingController {
       });
 
       res.json(booking);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to cancel booking", error });
+      return res.status(500).json({ message: "Failed to cancel booking", error });
     }
   }
 
@@ -195,7 +201,10 @@ export class BookingController {
         return res.status(404).json({ message: "Booking not found" });
       }
 
-      if (booking.status !== "quoted") {
+      // Remove or adjust this check, as 'quoted' is not a valid Booking status
+      // If you want to check for a specific valid status, use one of the allowed values:
+      // "pending", "confirmed", "active", "completed", "cancelled"
+      if (booking.status !== "pending") {
         return res.status(400).json({ message: "Booking cannot be approved in current status" });
       }
 
@@ -209,8 +218,9 @@ export class BookingController {
       );
 
       res.json(updatedBooking);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to approve booking", error });
+      return res.status(500).json({ message: "Failed to approve booking", error });
     }
   }
 
@@ -234,8 +244,9 @@ export class BookingController {
       }
 
       res.json(booking);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to reject booking", error });
+      return res.status(500).json({ message: "Failed to reject booking", error });
     }
   }
 
@@ -248,8 +259,9 @@ export class BookingController {
         .sort({ createdAt: -1 });
 
       res.json(bookings);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch pending bookings", error });
+      return res.status(500).json({ message: "Failed to fetch pending bookings", error });
     }
   }
 
@@ -269,8 +281,9 @@ export class BookingController {
         .sort({ createdAt: -1 });
 
       res.json(bookings);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch confirmed bookings", error });
+      return res.status(500).json({ message: "Failed to fetch confirmed bookings", error });
     }
   }
 
@@ -289,8 +302,9 @@ export class BookingController {
         .sort({ createdAt: -1 });
 
       res.json(bookings);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch active bookings", error });
+      return res.status(500).json({ message: "Failed to fetch active bookings", error });
     }
   }
 
@@ -309,8 +323,9 @@ export class BookingController {
         .sort({ createdAt: -1 });
 
       res.json(bookings);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch completed bookings", error });
+      return res.status(500).json({ message: "Failed to fetch completed bookings", error });
     }
   }
 }

@@ -19,8 +19,9 @@ export class InvoiceController {
       await invoice.save();
 
       res.status(201).json(invoice);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to create invoice", error });
+      return res.status(500).json({ message: "Failed to create invoice", error });
     }
   }
 
@@ -50,8 +51,9 @@ export class InvoiceController {
         .sort({ createdAt: -1 });
 
       res.json(invoices);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch invoices", error });
+      return res.status(500).json({ message: "Failed to fetch invoices", error });
     }
   }
 
@@ -74,8 +76,9 @@ export class InvoiceController {
       }
 
       res.json(invoice);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch invoice", error });
+      return res.status(500).json({ message: "Failed to fetch invoice", error });
     }
   }
 
@@ -96,8 +99,9 @@ export class InvoiceController {
       }
 
       res.json(invoice);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to update invoice", error });
+      return res.status(500).json({ message: "Failed to update invoice", error });
     }
   }
 
@@ -112,8 +116,9 @@ export class InvoiceController {
       }
 
       res.json({ message: "Invoice deleted successfully" });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete invoice", error });
+      return res.status(500).json({ message: "Failed to delete invoice", error });
     }
   }
 
@@ -136,11 +141,11 @@ export class InvoiceController {
 
       // Send invoice email
       await notificationService.sendEmail({
-        to: invoice.customerId.email,
+        to: (invoice.customerId as any).email,
         subject: `Invoice ${invoice.invoiceNumber} - Warehouse Wizard`,
         html: `
           <h2>Invoice ${invoice.invoiceNumber}</h2>
-          <p>Dear ${invoice.customerId.firstName} ${invoice.customerId.lastName},</p>
+          <p>Dear ${(invoice.customerId as any).firstName} ${(invoice.customerId as any).lastName},</p>
           <p>Please find your invoice details below:</p>
           <p>Amount: $${invoice.amount}</p>
           <p>Due Date: ${new Date(invoice.dueDate).toLocaleDateString()}</p>
@@ -149,8 +154,9 @@ export class InvoiceController {
       });
 
       res.json(invoice);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to send invoice", error });
+      return res.status(500).json({ message: "Failed to send invoice", error });
     }
   }
 
@@ -175,11 +181,11 @@ export class InvoiceController {
 
       // Send payment confirmation
       await notificationService.sendEmail({
-        to: invoice.customerId.email,
+        to: (invoice.customerId as any).email,
         subject: `Payment Received - Invoice ${invoice.invoiceNumber}`,
         html: `
           <h2>Payment Received</h2>
-          <p>Dear ${invoice.customerId.firstName} ${invoice.customerId.lastName},</p>
+          <p>Dear ${(invoice.customerId as any).firstName} ${(invoice.customerId as any).lastName},</p>
           <p>We have received your payment for invoice ${invoice.invoiceNumber}.</p>
           <p>Amount Paid: $${invoice.amount}</p>
           <p>Payment Date: ${new Date().toLocaleDateString()}</p>
@@ -188,8 +194,9 @@ export class InvoiceController {
       });
 
       res.json(invoice);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to mark invoice as paid", error });
+      return res.status(500).json({ message: "Failed to mark invoice as paid", error });
     }
   }
 
@@ -212,11 +219,11 @@ export class InvoiceController {
 
       // Send overdue notice
       await notificationService.sendEmail({
-        to: invoice.customerId.email,
+        to: (invoice.customerId as any).email,
         subject: `Overdue Notice - Invoice ${invoice.invoiceNumber}`,
         html: `
           <h2>Payment Overdue</h2>
-          <p>Dear ${invoice.customerId.firstName} ${invoice.customerId.lastName},</p>
+          <p>Dear ${(invoice.customerId as any).firstName} ${(invoice.customerId as any).lastName},</p>
           <p>Your invoice ${invoice.invoiceNumber} is now overdue.</p>
           <p>Amount Due: $${invoice.amount}</p>
           <p>Original Due Date: ${new Date(invoice.dueDate).toLocaleDateString()}</p>
@@ -225,8 +232,9 @@ export class InvoiceController {
       });
 
       res.json(invoice);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to mark invoice as overdue", error });
+      return res.status(500).json({ message: "Failed to mark invoice as overdue", error });
     }
   }
 
@@ -272,8 +280,9 @@ export class InvoiceController {
       });
 
       res.json(updatedInvoice);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to process payment", error });
+      return res.status(500).json({ message: "Failed to process payment", error });
     }
   }
 
@@ -301,8 +310,9 @@ export class InvoiceController {
         message: "PDF generation not implemented yet",
         invoice
       });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate PDF", error });
+      return res.status(500).json({ message: "Failed to generate PDF", error });
     }
   }
 
@@ -315,8 +325,9 @@ export class InvoiceController {
         .sort({ createdAt: -1 });
 
       res.json(invoices);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch draft invoices", error });
+      return res.status(500).json({ message: "Failed to fetch draft invoices", error });
     }
   }
 
@@ -335,8 +346,9 @@ export class InvoiceController {
         .sort({ createdAt: -1 });
 
       res.json(invoices);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch sent invoices", error });
+      return res.status(500).json({ message: "Failed to fetch sent invoices", error });
     }
   }
 
@@ -355,8 +367,9 @@ export class InvoiceController {
         .sort({ paidAt: -1 });
 
       res.json(invoices);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch paid invoices", error });
+      return res.status(500).json({ message: "Failed to fetch paid invoices", error });
     }
   }
 
@@ -375,8 +388,9 @@ export class InvoiceController {
         .sort({ dueDate: 1 });
 
       res.json(invoices);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch overdue invoices", error });
+      return res.status(500).json({ message: "Failed to fetch overdue invoices", error });
     }
   }
 

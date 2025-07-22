@@ -13,8 +13,8 @@ const warehouseSearchSchema = z.object({
   features: z.string().transform(val => val ? val.split(',') : []).optional(),
   sortBy: z.enum(['price', 'space', 'name', 'location']).default('name'),
   sortOrder: z.enum(['asc', 'desc']).default('asc'),
-  page: z.string().transform(val => parseInt(val) || 1).default('1'),
-  limit: z.string().transform(val => parseInt(val) || 20).default('20'),
+  page: z.preprocess(val => parseInt(val as string, 10), z.number().default(1)),
+  limit: z.preprocess(val => parseInt(val as string, 10), z.number().default(20)),
 });
 
 export class WarehouseController {
@@ -31,8 +31,9 @@ export class WarehouseController {
 
       const warehouses = await warehouseService.getAllWarehouses(filters);
       res.json(warehouses);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch warehouses", error });
+      return res.status(500).json({ message: "Failed to fetch warehouses", error });
     }
   }
 
@@ -46,8 +47,9 @@ export class WarehouseController {
       }
       
       res.json(warehouse);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch warehouse", error });
+      return res.status(500).json({ message: "Failed to fetch warehouse", error });
     }
   }
 
@@ -56,11 +58,12 @@ export class WarehouseController {
       const searchParams = warehouseSearchSchema.parse(req.query);
       const result = await warehouseService.searchWarehouses(searchParams);
       res.json(result);
+      return;
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid search parameters", errors: error.errors });
+        return res.status(400).json({ message: "Invalid search parameters", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to search warehouses", error });
+      return res.status(500).json({ message: "Failed to search warehouses", error });
     }
   }
 
@@ -69,11 +72,12 @@ export class WarehouseController {
       const warehouseData = insertWarehouseSchema.parse(req.body);
       const warehouse = await warehouseService.createWarehouse(warehouseData);
       res.status(201).json(warehouse);
+      return;
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid warehouse data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid warehouse data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to create warehouse", error });
+      return res.status(500).json({ message: "Failed to create warehouse", error });
     }
   }
 
@@ -89,8 +93,9 @@ export class WarehouseController {
       }
       
       res.json(warehouse);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to update warehouse", error });
+      return res.status(500).json({ message: "Failed to update warehouse", error });
     }
   }
 
@@ -104,8 +109,9 @@ export class WarehouseController {
       }
       
       res.json({ message: "Warehouse deleted successfully" });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete warehouse", error });
+      return res.status(500).json({ message: "Failed to delete warehouse", error });
     }
   }
 
@@ -114,8 +120,9 @@ export class WarehouseController {
       const { type } = req.params;
       const warehouses = await warehouseService.getWarehousesByType(type);
       res.json(warehouses);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch warehouses by type", error });
+      return res.status(500).json({ message: "Failed to fetch warehouses by type", error });
     }
   }
 
@@ -124,8 +131,9 @@ export class WarehouseController {
       const { city, state } = req.params;
       const warehouses = await warehouseService.getWarehousesByLocation(city, state);
       res.json(warehouses);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch warehouses by location", error });
+      return res.status(500).json({ message: "Failed to fetch warehouses by location", error });
     }
   }
 
@@ -136,8 +144,9 @@ export class WarehouseController {
       
       const isAvailable = await warehouseService.checkAvailability(id, requiredSpace);
       res.json({ available: isAvailable });
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to check availability", error });
+      return res.status(500).json({ message: "Failed to check availability", error });
     }
   }
 
@@ -155,8 +164,9 @@ export class WarehouseController {
       ];
       
       res.json(types);
+      return;
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch warehouse types", error });
+      return res.status(500).json({ message: "Failed to fetch warehouse types", error });
     }
   }
 }
