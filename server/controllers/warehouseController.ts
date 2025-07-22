@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { warehouseService } from "../services/warehouseService";
-import { insertWarehouseSchema } from "@shared/schema";
+import { insertWarehouseSchema } from "../../shared/schema";
 import { z } from "zod";
 
 const warehouseSearchSchema = z.object({

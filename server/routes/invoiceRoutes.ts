@@ -2,7 +2,7 @@ import { Router } from "express";
 import { invoiceController } from "../controllers/invoiceController";
 import { authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
-import { insertInvoiceSchema } from "@shared/schema";
+import { insertInvoiceSchema } from "../../shared/schema";
 
 const router = Router();
 

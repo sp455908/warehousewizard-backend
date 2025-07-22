@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { UserModel } from "@shared/schema";
+import { UserModel } from "../../shared/schema";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 

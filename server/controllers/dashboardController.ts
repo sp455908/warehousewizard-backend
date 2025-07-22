@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../middleware/auth";
-import { QuoteModel, BookingModel, UserModel, WarehouseModel, InvoiceModel } from "@shared/schema";
+import { QuoteModel, BookingModel, UserModel, WarehouseModel, InvoiceModel } from "../../shared/schema";
 
 export class DashboardController {
   async getDashboardStats(req: AuthenticatedRequest, res: Response) {

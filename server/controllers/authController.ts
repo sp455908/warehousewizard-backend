@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { UserModel, type InsertUser } from "@shared/schema";
+import { UserModel, type InsertUser } from "../../shared/schema";
 import { notificationService } from "../services/notificationService";
 import { generateToken } from "../middleware/auth";
 

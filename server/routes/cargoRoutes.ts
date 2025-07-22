@@ -2,7 +2,7 @@ import { Router } from "express";
 import { cargoController } from "../controllers/cargoController";
 import { authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
-import { insertCargoDispatchSchema } from "@shared/schema";
+import { insertCargoDispatchSchema } from "../../shared/schema";
 
 const router = Router();
 

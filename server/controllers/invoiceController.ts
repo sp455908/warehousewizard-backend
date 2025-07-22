@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { InvoiceModel, type InsertInvoice } from "@shared/schema";
+import { InvoiceModel, type InsertInvoice } from "../../shared/schema";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { notificationService } from "../services/notificationService";
 

@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { BookingModel, type InsertBooking } from "@shared/schema";
+import { BookingModel, type InsertBooking } from "../../shared/schema";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { notificationService } from "../services/notificationService";
 import { warehouseService } from "../services/warehouseService";

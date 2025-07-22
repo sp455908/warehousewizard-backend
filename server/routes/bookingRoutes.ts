@@ -2,7 +2,7 @@ import { Router } from "express";
 import { bookingController } from "../controllers/bookingController";
 import { authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
-import { insertBookingSchema } from "@shared/schema";
+import { insertBookingSchema } from "../../shared/schema";
 
 const router = Router();
 

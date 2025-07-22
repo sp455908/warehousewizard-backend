@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { DeliveryRequestModel, type InsertDeliveryRequest } from "@shared/schema";
+import { DeliveryRequestModel, type InsertDeliveryRequest } from "../../shared/schema";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { notificationService } from "../services/notificationService";
 import crypto from "crypto";

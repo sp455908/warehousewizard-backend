@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { CargoDispatchDetailModel, type InsertCargoDispatchDetail } from "@shared/schema";
+import { CargoDispatchDetailModel, type InsertCargoDispatchDetail } from "../../shared/schema";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { notificationService } from "../services/notificationService";
 

@@ -2,7 +2,7 @@ import { Response, Router } from "express";
 import { quoteController } from "../controllers/quoteController";
 import { AuthenticatedRequest, authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
-import { insertQuoteSchema } from "@shared/schema";
+import { insertQuoteSchema } from "../../shared/schema";
 import { quoteLimiter } from "../middleware/rateLimiter";
 
 const router = Router();

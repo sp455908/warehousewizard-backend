@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { quoteService } from "../services/quoteService";
-import { insertQuoteSchema } from "@shared/schema";
+import { insertQuoteSchema } from "../../shared/schema";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { z } from "zod";
 
