@@ -1,4 +1,4 @@
-import { QuoteModel, type Quote, type InsertQuote } from "@shared/schema";
+import { QuoteModel, type Quote, type InsertQuote } from "../../shared/schema";
 import { warehouseService } from "./warehouseService";
 import { notificationService } from "./notificationService";
 import { cacheService } from "./cacheService";

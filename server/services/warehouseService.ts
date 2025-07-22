@@ -1,4 +1,4 @@
-import { WarehouseModel, type Warehouse, type InsertWarehouse } from "@shared/schema";
+import { WarehouseModel, type Warehouse, type InsertWarehouse } from "../../shared/schema";
 import { cacheService } from "./cacheService";
 
 export interface WarehouseFilters {
