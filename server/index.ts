@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import routes from "./routes";
-import { connectToMongoDB, connectToRedis } from "./config/database";
+import { connectToMongoDB } from "./config/database";
 import { apiLimiter } from "./middleware/rateLimiter";
 import cors from "cors";
 import helmet from "helmet";
