@@ -8,6 +8,8 @@ import invoiceRoutes from "./invoiceRoutes";
 import userRoutes from "./userRoutes";
 import authRoutes from "./authRoutes";
 import dashboardRoutes from "./dashboardRoutes";
+import rolesRoutes from "./rolesRoutes";
+import settingsRoutes from "./settingsRoutes";
 
 const router = Router();
 
@@ -21,6 +23,8 @@ router.use("/delivery", deliveryRoutes);
 router.use("/invoices", invoiceRoutes);
 router.use("/users", userRoutes);
 router.use("/dashboard", dashboardRoutes);
+router.use("/roles", rolesRoutes);
+router.use("/settings", settingsRoutes);
 
 // Health check
 router.get("/health", (req, res) => {

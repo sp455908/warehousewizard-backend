@@ -178,6 +178,17 @@ export class UserController {
       const { id } = req.params;
       const updateData = req.body;
 
+      // Check if user exists and is an admin
+      const existingUser = await UserModel.findById(id);
+      if (!existingUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Prevent modification of admin users
+      if (existingUser.role === "admin") {
+        return res.status(403).json({ message: "Admin users cannot be modified" });
+      }
+
       // If password is being updated, hash it
       if (updateData.password) {
         const saltRounds = 12;
@@ -189,10 +200,6 @@ export class UserController {
         { ...updateData, updatedAt: new Date() },
         { new: true }
       ).select('-password');
-
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
 
       res.json(user);
       return;
@@ -211,10 +218,18 @@ export class UserController {
         return res.status(400).json({ message: "Cannot delete your own account" });
       }
 
-      const user = await UserModel.findByIdAndDelete(id);
-      if (!user) {
+      // Check if user exists and is an admin
+      const existingUser = await UserModel.findById(id);
+      if (!existingUser) {
         return res.status(404).json({ message: "User not found" });
       }
+
+      // Prevent deletion of admin users
+      if (existingUser.role === "admin") {
+        return res.status(403).json({ message: "Admin users cannot be deleted" });
+      }
+
+      const user = await UserModel.findByIdAndDelete(id);
 
       res.json({ message: "User deleted successfully" });
       return;
@@ -241,6 +256,17 @@ export class UserController {
   async activateUser(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
+
+      // Check if user exists and is an admin
+      const existingUser = await UserModel.findById(id);
+      if (!existingUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Prevent activation/deactivation of admin users
+      if (existingUser.role === "admin") {
+        return res.status(403).json({ message: "Admin users cannot be deactivated" });
+      }
 
       const user = await UserModel.findByIdAndUpdate(
         id,
@@ -278,6 +304,17 @@ export class UserController {
       // Prevent admin from deactivating themselves
       if (id === currentUserId) {
         return res.status(400).json({ message: "Cannot deactivate your own account" });
+      }
+
+      // Check if user exists and is an admin
+      const existingUser = await UserModel.findById(id);
+      if (!existingUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Prevent deactivation of admin users
+      if (existingUser.role === "admin") {
+        return res.status(403).json({ message: "Admin users cannot be deactivated" });
       }
 
       const user = await UserModel.findByIdAndUpdate(
@@ -345,6 +382,41 @@ export class UserController {
       return res.status(500).json({ message: "Failed to fetch pending guest customers", error });
     }
   }
+
+  async getRoles(req: AuthenticatedRequest, res: Response) {
+    try {
+      // Import userRoles from schema
+      const { userRoles } = require("../../shared/schema");
+      
+      // Return roles with additional metadata
+      const roles = userRoles.map((role: string) => ({
+        value: role,
+        label: role.split('_').map((word: string) => 
+          word.charAt(0).toUpperCase() + word.slice(1)
+        ).join(' '),
+        description: getRoleDescription(role)
+      }));
+
+      res.json(roles);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to fetch roles", error });
+    }
+  }
+}
+
+// Helper function to get role descriptions
+function getRoleDescription(role: string): string {
+  const descriptions: Record<string, string> = {
+    customer: "Can create quotes, manage bookings, and track deliveries",
+    purchase_support: "Processes quote requests and verifies customers",
+    sales_support: "Reviews and approves quotes",
+    supervisor: "Approves bookings and oversees operations",
+    warehouse: "Manages inventory and processes cargo",
+    accounts: "Handles invoicing and payments",
+    admin: "Full system access and user management"
+  };
+  return descriptions[role] || "No description available";
 }
 
 export const userController = new UserController();
