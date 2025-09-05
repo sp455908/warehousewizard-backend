@@ -28,10 +28,9 @@ export const settingsController = {
           maintenanceMode: false,
         },
       };
-
-      res.json(generalSettings);
+    return res.json(generalSettings);
     } catch (error) {
-      return res.status(500).json({ message: "Failed to fetch general settings", error });
+    return res.status(500).json({ message: "Failed to fetch general settings", error });
     }
   },
 
@@ -41,10 +40,9 @@ export const settingsController = {
       const settings = req.body;
       // Mock update - replace with actual database update
       console.log("Updating general settings:", settings);
-      
-      res.json({ message: "General settings updated successfully" });
+    return res.json({ message: "General settings updated successfully" });
     } catch (error) {
-      return res.status(500).json({ message: "Failed to update general settings", error });
+    return res.status(500).json({ message: "Failed to update general settings", error });
     }
   },
 
@@ -76,10 +74,9 @@ export const settingsController = {
           allowedIPs: [],
         },
       };
-
-      res.json(securitySettings);
+    return res.json(securitySettings);
     } catch (error) {
-      return res.status(500).json({ message: "Failed to fetch security settings", error });
+    return res.status(500).json({ message: "Failed to fetch security settings", error });
     }
   },
 
@@ -89,10 +86,9 @@ export const settingsController = {
       const settings = req.body;
       // Mock update - replace with actual database update
       console.log("Updating security settings:", settings);
-      
-      res.json({ message: "Security settings updated successfully" });
+    return res.json({ message: "Security settings updated successfully" });
     } catch (error) {
-      return res.status(500).json({ message: "Failed to update security settings", error });
+    return res.status(500).json({ message: "Failed to update security settings", error });
     }
   },
 
@@ -134,10 +130,9 @@ export const settingsController = {
           maxEmailsPerDay: 10000,
         },
       };
-
-      res.json(emailSettings);
+    return res.json(emailSettings);
     } catch (error) {
-      return res.status(500).json({ message: "Failed to fetch email settings", error });
+    return res.status(500).json({ message: "Failed to fetch email settings", error });
     }
   },
 
@@ -147,10 +142,9 @@ export const settingsController = {
       const settings = req.body;
       // Mock update - replace with actual database update
       console.log("Updating email settings:", settings);
-      
-      res.json({ message: "Email settings updated successfully" });
+    return res.json({ message: "Email settings updated successfully" });
     } catch (error) {
-      return res.status(500).json({ message: "Failed to update email settings", error });
+    return res.status(500).json({ message: "Failed to update email settings", error });
     }
   },
 
@@ -161,10 +155,9 @@ export const settingsController = {
       
       // Mock email test - replace with actual email sending
       console.log("Testing email configuration to:", email);
-      
-      res.json({ message: "Test email sent successfully" });
+    return res.json({ message: "Test email sent successfully" });
     } catch (error) {
-      return res.status(500).json({ message: "Failed to send test email", error });
+    return res.status(500).json({ message: "Failed to send test email", error });
     }
   },
 };
