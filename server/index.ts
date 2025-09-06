@@ -17,7 +17,8 @@ app.use(helmet());
 app.use(cors({
   origin: [
     process.env.FRONTEND_URL || "http://localhost:5173",
-    "https://warehousewizard-frontend.onrender.com"
+    "https://warehousewizard-frontend.onrender.com",
+    "https://client-taupe-psi.vercel.app"
   ],
   credentials: true,
 }));
