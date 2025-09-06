@@ -74,12 +74,13 @@ export interface IWarehouse extends Document {
   location: string;
   city: string;
   state: string;
-  storageType: "cold_storage" | "dry_storage" | "hazmat" | "climate_controlled";
+  storageType: "domestic_dry" | "domestic_reefer" | "bonded_dry" | "bonded_reefer" | "cfs_import" | "cfs_export_dry" | "cfs_export_reefer";
   totalSpace: number;
   availableSpace: number;
   pricePerSqFt: number;
   features?: any;
   isActive: boolean;
+  imageUrl?: string;
 }
 
 const warehouseSchema = new Schema<IWarehouse>({
@@ -89,13 +90,14 @@ const warehouseSchema = new Schema<IWarehouse>({
   state: { type: String, required: true },
   storageType: { 
     type: String, 
-    enum: ["cold_storage", "dry_storage", "hazmat", "climate_controlled"], 
+    enum: ["domestic_dry", "domestic_reefer", "bonded_dry", "bonded_reefer", "cfs_import", "cfs_export_dry", "cfs_export_reefer"], 
     required: true 
   },
   totalSpace: { type: Number, required: true },
   availableSpace: { type: Number, required: true },
   pricePerSqFt: { type: Number, required: true },
   features: { type: Schema.Types.Mixed },
+  imageUrl: { type: String },
   isActive: { type: Boolean, default: true },
 });
 
