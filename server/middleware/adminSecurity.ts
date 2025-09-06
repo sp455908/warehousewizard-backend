@@ -6,7 +6,7 @@ import { Request, Response, NextFunction } from "express";
  */
 export function preventAdminRoleCreation(req: Request, res: Response, next: NextFunction) {
   // Check if request body contains admin role (creation or assignment)
-  if (req.body && req.body.role === "admin") {
+  if (req.body && typeof req.body === 'object' && req.body.role === "admin") {
     console.warn("🚨 SECURITY ALERT: Admin role detected in request body");
     console.warn("Request body:", JSON.stringify(req.body, null, 2));
     console.warn("IP Address:", req.ip);
@@ -27,7 +27,7 @@ export function preventAdminRoleCreation(req: Request, res: Response, next: Next
  */
 export function logAdminAttempts(req: Request, res: Response, next: NextFunction) {
   const adminKeywords = ["admin", "administrator", "superuser"];
-  const bodyString = JSON.stringify(req.body).toLowerCase();
+  const bodyString = req.body ? JSON.stringify(req.body).toLowerCase() : "";
   
   if (adminKeywords.some(keyword => bodyString.includes(keyword))) {
     console.warn("🔍 ADMIN-RELATED REQUEST DETECTED:");
