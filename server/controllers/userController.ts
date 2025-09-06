@@ -165,6 +165,14 @@ export class UserController {
     try {
       const userData = req.body;
       
+      // SECURITY: Prevent admin role creation through user creation
+      if (userData.role === "admin") {
+        console.warn("🚨 SECURITY ALERT: Attempted admin role creation through user creation");
+        return res.status(403).json({ 
+          message: "Admin role cannot be created through user management. Contact system administrator." 
+        });
+      }
+      
       // Check if user already exists
       const existingUser = await prisma.user.findUnique({ 
         where: { email: userData.email } 
@@ -177,7 +185,7 @@ export class UserController {
       const saltRounds = 12;
       const hashedPassword = await bcrypt.hash(userData.password, saltRounds);
 
-      // Create user
+      // Create user (admin role is blocked)
       const user = await prisma.user.create({
         data: {
           email: userData.email,
@@ -186,7 +194,7 @@ export class UserController {
           lastName: userData.lastName,
           mobile: userData.mobile,
           company: userData.company,
-          role: userData.role || 'customer',
+          role: userData.role === "admin" ? "customer" : (userData.role || 'customer'), // Force non-admin role
           isActive: userData.isActive ?? true,
           isEmailVerified: userData.isEmailVerified ?? false,
           isMobileVerified: userData.isMobileVerified ?? false,
@@ -221,6 +229,14 @@ export class UserController {
       const { id } = req.params;
       const updateData = req.body;
 
+      // SECURITY: Prevent admin role assignment through updates
+      if (updateData.role === "admin") {
+        console.warn("🚨 SECURITY ALERT: Attempted admin role assignment through user update");
+        return res.status(403).json({ 
+          message: "Admin role cannot be assigned through user updates. Contact system administrator." 
+        });
+      }
+
       // Check if user exists and is an admin
       const existingUser = await prisma.user.findUnique({ where: { id } });
       if (!existingUser) {
@@ -238,6 +254,9 @@ export class UserController {
         updateData.passwordHash = await bcrypt.hash(updateData.password, saltRounds);
         delete updateData.password;
       }
+
+      // Remove any attempt to set admin role
+      delete updateData.role;
 
       const user = await prisma.user.update({
         where: { id },

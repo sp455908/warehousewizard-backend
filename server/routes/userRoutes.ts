@@ -2,6 +2,7 @@ import { Router } from "express";
 import { userController } from "../controllers/userController";
 import { authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
+import { preventAdminRoleCreation, logAdminAttempts } from "../middleware/adminSecurity";
 import { z } from "zod";
 
 const router = Router();
@@ -21,6 +22,10 @@ const insertUserSchema = z.object({
 
 // All user routes require authentication
 router.use(authenticateToken);
+
+// Apply admin security middleware
+router.use(logAdminAttempts);
+router.use(preventAdminRoleCreation);
 
 // Profile routes (all authenticated users)
 router.get("/profile", userController.getProfile);

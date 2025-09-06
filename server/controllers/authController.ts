@@ -13,6 +13,17 @@ export class AuthController {
     try {
       const userData = req.body;
       
+      // SECURITY: Prevent admin role creation through registration
+      if (userData.role === "admin") {
+        console.warn("🚨 SECURITY ALERT: Attempted admin role creation through registration");
+        return res.status(403).json({ 
+          message: "Admin role cannot be created through registration. Contact system administrator." 
+        });
+      }
+      
+      // Force customer role for all registrations
+      const userRole = "customer";
+      
       // Check if user already exists
       const existingUser = await prisma.user.findUnique({ where: { email: userData.email } });
       if (existingUser) {
@@ -23,7 +34,7 @@ export class AuthController {
       const saltRounds = 12;
       const hashedPassword = await bcrypt.hash(userData.password, saltRounds);
 
-      // Create user
+      // Create user with forced customer role
       const user = await prisma.user.create({
         data: {
           email: userData.email,
@@ -32,7 +43,7 @@ export class AuthController {
           lastName: userData.lastName,
           mobile: userData.mobile,
           company: userData.company,
-          role: userData.role || "customer",
+          role: userRole, // Always customer, never admin
           isActive: true,
           isEmailVerified: false,
           isMobileVerified: false,
@@ -264,6 +275,7 @@ export class AuthController {
       return res.status(500).json({ message: "Failed to create guest user", error });
     }
   }
+
 }
 
 export const authController = new AuthController();

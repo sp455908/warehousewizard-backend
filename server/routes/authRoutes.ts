@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authController } from "../controllers/authController";
 import { validateRequest } from "../middleware/validation";
 import { authLimiter } from "../middleware/rateLimiter";
+import { preventAdminRoleCreation, logAdminAttempts } from "../middleware/adminSecurity";
 import { z } from "zod";
 
 const router = Router();
@@ -31,6 +32,10 @@ const registerSchema = z.object({
 
 // Apply rate limiting to auth routes
 router.use(authLimiter);
+
+// Apply admin security middleware
+router.use(logAdminAttempts);
+router.use(preventAdminRoleCreation);
 
 // Public auth routes
 router.post("/register", validateRequest(registerSchema), authController.register);
