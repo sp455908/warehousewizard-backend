@@ -148,6 +148,12 @@ class UserController {
     async createUser(req, res) {
         try {
             const userData = req.body;
+            if (userData.role === "admin") {
+                console.warn("🚨 SECURITY ALERT: Attempted admin role creation through user creation");
+                return res.status(403).json({
+                    message: "Admin role cannot be created through user management. Contact system administrator."
+                });
+            }
             const existingUser = await prisma_1.prisma.user.findUnique({
                 where: { email: userData.email }
             });
@@ -164,7 +170,7 @@ class UserController {
                     lastName: userData.lastName,
                     mobile: userData.mobile,
                     company: userData.company,
-                    role: userData.role || 'customer',
+                    role: userData.role === "admin" ? "customer" : (userData.role || 'customer'),
                     isActive: userData.isActive ?? true,
                     isEmailVerified: userData.isEmailVerified ?? false,
                     isMobileVerified: userData.isMobileVerified ?? false,
@@ -194,6 +200,12 @@ class UserController {
         try {
             const { id } = req.params;
             const updateData = req.body;
+            if (updateData.role === "admin") {
+                console.warn("🚨 SECURITY ALERT: Attempted admin role assignment through user update");
+                return res.status(403).json({
+                    message: "Admin role cannot be assigned through user updates. Contact system administrator."
+                });
+            }
             const existingUser = await prisma_1.prisma.user.findUnique({ where: { id } });
             if (!existingUser) {
                 return res.status(404).json({ message: "User not found" });
@@ -206,6 +218,7 @@ class UserController {
                 updateData.passwordHash = await bcryptjs_1.default.hash(updateData.password, saltRounds);
                 delete updateData.password;
             }
+            delete updateData.role;
             const user = await prisma_1.prisma.user.update({
                 where: { id },
                 data: updateData,

@@ -5,7 +5,7 @@ import { Request, Response, NextFunction } from "express";
  * This adds an extra layer of protection beyond application-level checks
  */
 export function preventAdminRoleCreation(req: Request, res: Response, next: NextFunction) {
-  // Check if request body contains admin role
+  // Check if request body contains admin role (creation or assignment)
   if (req.body && req.body.role === "admin") {
     console.warn("🚨 SECURITY ALERT: Admin role detected in request body");
     console.warn("Request body:", JSON.stringify(req.body, null, 2));
@@ -13,25 +13,13 @@ export function preventAdminRoleCreation(req: Request, res: Response, next: Next
     console.warn("User Agent:", req.get("User-Agent"));
     
     return res.status(403).json({
-      message: "Admin role creation is not allowed through this endpoint",
+      message: "Admin role creation/assignment is not allowed through this endpoint",
       error: "FORBIDDEN_ADMIN_ROLE"
     });
   }
 
-  // Check if request body contains role update to admin
-  if (req.body && req.body.role && req.body.role === "admin") {
-    console.warn("🚨 SECURITY ALERT: Admin role assignment detected in request body");
-    console.warn("Request body:", JSON.stringify(req.body, null, 2));
-    console.warn("IP Address:", req.ip);
-    console.warn("User Agent:", req.get("User-Agent"));
-    
-    return res.status(403).json({
-      message: "Admin role assignment is not allowed through this endpoint",
-      error: "FORBIDDEN_ADMIN_ROLE_ASSIGNMENT"
-    });
-  }
-
-  next();
+  // If no admin role detected, proceed to next middleware
+  return next();
 }
 
 /**

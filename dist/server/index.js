@@ -14,7 +14,10 @@ const compression_1 = __importDefault(require("compression"));
 const app = (0, express_1.default)();
 app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: [
+        process.env.FRONTEND_URL || "http://localhost:5173",
+        "https://warehousewizard-frontend.onrender.com"
+    ],
     credentials: true,
 }));
 app.use((0, compression_1.default)());

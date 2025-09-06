@@ -4,6 +4,7 @@ const express_1 = require("express");
 const userController_1 = require("../controllers/userController");
 const auth_1 = require("../middleware/auth");
 const validation_1 = require("../middleware/validation");
+const adminSecurity_1 = require("../middleware/adminSecurity");
 const zod_1 = require("zod");
 const router = (0, express_1.Router)();
 const insertUserSchema = zod_1.z.object({
@@ -19,6 +20,8 @@ const insertUserSchema = zod_1.z.object({
     isMobileVerified: zod_1.z.boolean().default(false),
 });
 router.use(auth_1.authenticateToken);
+router.use(adminSecurity_1.logAdminAttempts);
+router.use(adminSecurity_1.preventAdminRoleCreation);
 router.get("/profile", userController_1.userController.getProfile);
 router.put("/profile", userController_1.userController.updateProfile);
 router.post("/change-password", userController_1.userController.changePassword);

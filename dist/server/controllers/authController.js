@@ -14,6 +14,13 @@ class AuthController {
     async register(req, res) {
         try {
             const userData = req.body;
+            if (userData.role === "admin") {
+                console.warn("🚨 SECURITY ALERT: Attempted admin role creation through registration");
+                return res.status(403).json({
+                    message: "Admin role cannot be created through registration. Contact system administrator."
+                });
+            }
+            const userRole = "customer";
             const existingUser = await prisma_1.prisma.user.findUnique({ where: { email: userData.email } });
             if (existingUser) {
                 return res.status(400).json({ message: "Email already registered" });
@@ -28,7 +35,7 @@ class AuthController {
                     lastName: userData.lastName,
                     mobile: userData.mobile,
                     company: userData.company,
-                    role: userData.role || "customer",
+                    role: userRole,
                     isActive: true,
                     isEmailVerified: false,
                     isMobileVerified: false,

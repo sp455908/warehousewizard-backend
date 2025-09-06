@@ -4,6 +4,7 @@ const express_1 = require("express");
 const authController_1 = require("../controllers/authController");
 const validation_1 = require("../middleware/validation");
 const rateLimiter_1 = require("../middleware/rateLimiter");
+const adminSecurity_1 = require("../middleware/adminSecurity");
 const zod_1 = require("zod");
 const router = (0, express_1.Router)();
 const loginSchema = zod_1.z.object({
@@ -26,6 +27,8 @@ const registerSchema = zod_1.z.object({
     company: zod_1.z.string().optional(),
 });
 router.use(rateLimiter_1.authLimiter);
+router.use(adminSecurity_1.logAdminAttempts);
+router.use(adminSecurity_1.preventAdminRoleCreation);
 router.post("/register", (0, validation_1.validateRequest)(registerSchema), authController_1.authController.register);
 router.post("/login", (0, validation_1.validateRequest)(loginSchema), authController_1.authController.login);
 router.post("/logout", authController_1.authController.logout);
