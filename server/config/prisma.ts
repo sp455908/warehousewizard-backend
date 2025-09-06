@@ -1,41 +1,27 @@
-// Only import PrismaClient if DATABASE_URL is available
-const databaseUrl = process.env.DATABASE_URL;
-let prisma: any = null;
+import { PrismaClient } from "@prisma/client";
 
-if (databaseUrl && databaseUrl.trim() !== '') {
-  try {
-    const { PrismaClient } = require("@prisma/client");
-    prisma = new PrismaClient({
-      log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error'],
-      errorFormat: 'pretty',
-      datasources: {
-        db: {
-          url: databaseUrl
-        }
-      }
-    });
-    console.log("✅ Prisma client initialized");
-  } catch (error) {
-    console.warn("⚠️  Failed to initialize Prisma client:", error);
-    prisma = null;
-  }
-} else {
-  console.warn("⚠️  DATABASE_URL not found or empty. Prisma will not be available.");
-}
+// Get DATABASE_URL from environment
+const databaseUrl = process.env.DATABASE_URL || "postgresql://username:password@localhost:5432/warehousewizard?schema=public";
 
-export { prisma };
+// Initialize Prisma client with proper configuration to avoid enableTracing error
+export const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: databaseUrl
+    }
+  },
+  log: ['error', 'warn'],
+  errorFormat: 'pretty'
+});
+
+console.log("✅ Prisma client initialized with PostgreSQL");
 
 export async function verifyPostgresConnection(): Promise<void> {
-  if (!prisma) {
-    console.warn("⚠️  Prisma client not initialized. Skipping PostgreSQL connection.");
-    return;
-  }
-
   try {
     await prisma.$queryRaw`SELECT 1`;
-    console.log("✅ Connected to Postgres (Prisma)");
+    console.log("✅ Connected to PostgreSQL via Prisma");
   } catch (error) {
-    console.error("❌ Postgres connection failed:", error);
+    console.error("❌ PostgreSQL connection failed:", error);
     throw error;
   }
 }

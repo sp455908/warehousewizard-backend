@@ -1,7 +1,6 @@
 import { cacheService } from "./cacheService";
 import { prisma } from "../config/prisma";
 import { StorageType } from "@prisma/client";
-import { WarehouseModel } from "../../shared/schema";
 
 export interface WarehouseFilters {
   city?: string;
@@ -19,33 +18,16 @@ export class WarehouseService {
       return cached;
     }
 
-    let warehouses;
-
-    if (prisma) {
-      // Use Prisma if available
-      const where: any = { isActive: true };
-      if (filters) {
-        if (filters.city) where.city = { contains: filters.city, mode: 'insensitive' };
-        if (filters.state) where.state = { contains: filters.state, mode: 'insensitive' };
-        if (filters.storageType) where.storageType = filters.storageType;
-        if (filters.minSpace) where.availableSpace = { gte: filters.minSpace };
-        if (filters.maxPrice) where.pricePerSqFt = { lte: filters.maxPrice };
-      }
-
-      warehouses = await prisma.warehouse.findMany({ where, orderBy: { name: 'asc' } });
-    } else {
-      // Fallback to MongoDB
-      const mongoFilters: any = { isActive: true };
-      if (filters) {
-        if (filters.city) mongoFilters.city = { $regex: filters.city, $options: 'i' };
-        if (filters.state) mongoFilters.state = { $regex: filters.state, $options: 'i' };
-        if (filters.storageType) mongoFilters.storageType = filters.storageType;
-        if (filters.minSpace) mongoFilters.availableSpace = { $gte: filters.minSpace };
-        if (filters.maxPrice) mongoFilters.pricePerSqFt = { $lte: filters.maxPrice };
-      }
-
-      warehouses = await WarehouseModel.find(mongoFilters).sort({ name: 1 });
+    const where: any = { isActive: true };
+    if (filters) {
+      if (filters.city) where.city = { contains: filters.city, mode: 'insensitive' };
+      if (filters.state) where.state = { contains: filters.state, mode: 'insensitive' };
+      if (filters.storageType) where.storageType = filters.storageType;
+      if (filters.minSpace) where.availableSpace = { gte: filters.minSpace };
+      if (filters.maxPrice) where.pricePerSqFt = { lte: filters.maxPrice };
     }
+
+    const warehouses = await prisma.warehouse.findMany({ where, orderBy: { name: 'asc' } });
     
     // Cache the results
     await cacheService.setWarehouses(warehouses, filters);
@@ -54,11 +36,7 @@ export class WarehouseService {
   }
 
   async getWarehouseById(id: string) {
-    if (prisma) {
-      return await prisma.warehouse.findUnique({ where: { id } });
-    } else {
-      return await WarehouseModel.findById(id);
-    }
+    return await prisma.warehouse.findUnique({ where: { id } });
   }
 
   async getWarehousesByType(storageType: StorageType) {

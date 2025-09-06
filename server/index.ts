@@ -2,7 +2,6 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import routes from "./routes";
 import { verifyPostgresConnection } from "./config/prisma";
-import { connectToMongoDB } from "./config/database";
 import { apiLimiter } from "./middleware/rateLimiter";
 import cors from "cors";
 import helmet from "helmet";
@@ -59,15 +58,8 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Connect to MongoDB
-  await connectToMongoDB();
-  
-  // Connect to PostgreSQL database via Prisma (if available)
-  try {
-    await verifyPostgresConnection();
-  } catch (error) {
-    console.warn("⚠️  PostgreSQL connection failed, continuing with MongoDB only");
-  }
+  // Connect to PostgreSQL database via Prisma
+  await verifyPostgresConnection();
   
   // Setup API routes
   app.use("/api", routes);
