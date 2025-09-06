@@ -147,8 +147,8 @@ class WarehouseController {
     async getWarehouseTypes(req, res) {
         try {
             const types = [
-                { value: 'dry_storage', label: 'Domestic Dry', description: 'Standard dry storage for general goods' },
-                { value: 'cold_storage', label: 'Domestic Reefer', description: 'Temperature-controlled storage for perishables' },
+                { value: 'domestic_dry', label: 'Domestic Dry', description: 'Standard dry storage for general goods' },
+                { value: 'domestic_reefer', label: 'Domestic Reefer', description: 'Temperature-controlled storage for perishables' },
                 { value: 'bonded_dry', label: 'Bonded Dry', description: 'Bonded warehouse for duty-free storage' },
                 { value: 'bonded_reefer', label: 'Bonded Reefer', description: 'Bonded cold storage facility' },
                 { value: 'cfs_import', label: 'CFS Import', description: 'Container freight station for imports' },

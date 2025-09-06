@@ -73,13 +73,14 @@ const warehouseSchema = new mongoose_1.Schema({
     state: { type: String, required: true },
     storageType: {
         type: String,
-        enum: ["cold_storage", "dry_storage", "hazmat", "climate_controlled"],
+        enum: ["domestic_dry", "domestic_reefer", "bonded_dry", "bonded_reefer", "cfs_import", "cfs_export_dry", "cfs_export_reefer"],
         required: true
     },
     totalSpace: { type: Number, required: true },
     availableSpace: { type: Number, required: true },
     pricePerSqFt: { type: Number, required: true },
     features: { type: mongoose_1.Schema.Types.Mixed },
+    imageUrl: { type: String },
     isActive: { type: Boolean, default: true },
 });
 exports.WarehouseModel = mongoose_1.default.model("Warehouse", warehouseSchema);

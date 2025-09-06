@@ -42,12 +42,13 @@ export interface IWarehouse extends Document {
     location: string;
     city: string;
     state: string;
-    storageType: "cold_storage" | "dry_storage" | "hazmat" | "climate_controlled";
+    storageType: "domestic_dry" | "domestic_reefer" | "bonded_dry" | "bonded_reefer" | "cfs_import" | "cfs_export_dry" | "cfs_export_reefer";
     totalSpace: number;
     availableSpace: number;
     pricePerSqFt: number;
     features?: any;
     isActive: boolean;
+    imageUrl?: string;
 }
 export declare const WarehouseModel: mongoose.Model<IWarehouse, {}, {}, {}, mongoose.Document<unknown, {}, IWarehouse, {}> & IWarehouse & Required<{
     _id: mongoose.Types.ObjectId;

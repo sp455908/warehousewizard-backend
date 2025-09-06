@@ -12,6 +12,7 @@ const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const compression_1 = __importDefault(require("compression"));
 const app = (0, express_1.default)();
+app.set('trust proxy', 1);
 app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)({
     origin: [

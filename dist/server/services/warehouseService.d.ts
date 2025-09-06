@@ -22,6 +22,7 @@ export declare class WarehouseService {
         isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
+        imageUrl: string | null;
     } | null>;
     getWarehousesByType(storageType: StorageType): Promise<any>;
     getWarehousesByLocation(city: string, state: string): Promise<any>;
@@ -39,6 +40,7 @@ export declare class WarehouseService {
         isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
+        imageUrl: string | null;
     }>;
     updateWarehouse(id: string, updateData: any): Promise<{
         id: string;
@@ -54,6 +56,7 @@ export declare class WarehouseService {
         isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
+        imageUrl: string | null;
     }>;
     deleteWarehouse(id: string): Promise<boolean>;
     checkAvailability(warehouseId: string, requiredSpace: number): Promise<boolean>;
@@ -85,6 +88,7 @@ export declare class WarehouseService {
             isActive: boolean;
             createdAt: Date;
             updatedAt: Date;
+            imageUrl: string | null;
         }[];
         pagination: {
             page: number;
