@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { warehouseService } from "../services/warehouseService";
-import { insertWarehouseSchema } from "../../shared/schema";
 import { z } from "zod";
 
 const warehouseSearchSchema = z.object({
@@ -69,7 +68,7 @@ export class WarehouseController {
 
   async createWarehouse(req: Request, res: Response) {
     try {
-      const warehouseData = insertWarehouseSchema.parse(req.body);
+      const warehouseData = req.body;
       const warehouse = await warehouseService.createWarehouse(warehouseData);
       res.status(201).json(warehouse);
       return;
@@ -118,7 +117,7 @@ export class WarehouseController {
   async getWarehousesByType(req: Request, res: Response) {
     try {
       const { type } = req.params;
-      const warehouses = await warehouseService.getWarehousesByType(type);
+      const warehouses = await warehouseService.getWarehousesByType(type as any);
       res.json(warehouses);
       return;
     } catch (error) {

@@ -2,12 +2,25 @@ import { Response, Router } from "express";
 import { quoteController } from "../controllers/quoteController";
 import { AuthenticatedRequest, authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
-import { insertQuoteSchema } from "../../shared/schema";
 import { quoteLimiter } from "../middleware/rateLimiter";
+import { z } from "zod";
 
 const router = Router();
 
-// All quote routes require authenticationfix 
+const insertQuoteSchema = z.object({
+  customerId: z.string(),
+  storageType: z.string().min(1),
+  requiredSpace: z.number().positive(),
+  preferredLocation: z.string().min(1),
+  duration: z.string().min(1),
+  specialRequirements: z.string().optional(),
+  status: z.enum(["pending", "processing", "quoted", "approved", "rejected"]).default("pending"),
+  assignedTo: z.string().optional(),
+  finalPrice: z.number().optional(),
+  warehouseId: z.string().optional(),
+});
+
+// All quote routes require authentication
 router.use(authenticateToken);
 
 // Customer routes
@@ -21,8 +34,8 @@ router.post(
   quoteLimiter,
   // Inject customerId from req.user into req.body before validation
   (req: AuthenticatedRequest, res: Response, next) => {
-    if (req.user && (req.user as any)._id) {
-      req.body.customerId = (req.user as any)._id.toString();
+    if (req.user && req.user.id) {
+      req.body.customerId = req.user.id;
     }
     next();
   },

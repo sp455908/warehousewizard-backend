@@ -2,9 +2,20 @@ import { Router } from "express";
 import { cargoController } from "../controllers/cargoController";
 import { authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
-import { insertCargoDispatchSchema } from "../../shared/schema";
+import { z } from "zod";
 
 const router = Router();
+
+const insertCargoDispatchSchema = z.object({
+  bookingId: z.string(),
+  itemDescription: z.string().min(1),
+  quantity: z.number().positive(),
+  weight: z.number().optional(),
+  dimensions: z.string().optional(),
+  specialHandling: z.string().optional(),
+  status: z.enum(["submitted", "approved", "processing", "completed"]).default("submitted"),
+  approvedBy: z.string().optional(),
+});
 
 // All cargo routes require authentication
 router.use(authenticateToken);

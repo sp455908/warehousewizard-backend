@@ -1,20 +1,33 @@
-import { QuoteModel, type Quote, type InsertQuote } from "../../shared/schema";
 import { warehouseService } from "./warehouseService";
 import { notificationService } from "./notificationService";
 import { cacheService } from "./cacheService";
+import { prisma } from "../config/prisma";
+import { QuoteStatus } from "@prisma/client";
 
 export interface QuoteFilters {
   customerId?: string;
-  status?: string;
+  status?: QuoteStatus;
   assignedTo?: string;
   warehouseId?: string;
   storageType?: string;
 }
 
 export class QuoteService {
-  async createQuote(quoteData: InsertQuote): Promise<Quote> {
-    const quote = new QuoteModel(quoteData);
-    const savedQuote = await quote.save();
+  async createQuote(quoteData: any) {
+    const savedQuote = await prisma.quote.create({
+      data: {
+        customerId: quoteData.customerId,
+        storageType: quoteData.storageType,
+        requiredSpace: quoteData.requiredSpace,
+        preferredLocation: quoteData.preferredLocation,
+        duration: quoteData.duration,
+        specialRequirements: quoteData.specialRequirements,
+        status: 'pending',
+        assignedTo: quoteData.assignedTo || null,
+        finalPrice: quoteData.finalPrice ?? null,
+        warehouseId: quoteData.warehouseId || null,
+      },
+    });
     
     // Invalidate user quotes cache
     await cacheService.invalidateUserQuotes(quoteData.customerId);
@@ -26,23 +39,29 @@ export class QuoteService {
     return savedQuote;
   }
 
-  async getQuoteById(id: string): Promise<Quote | null> {
-    return await QuoteModel.findById(id)
-      .populate('customerId', 'firstName lastName email company')
-      .populate('assignedTo', 'firstName lastName email')
-      .populate('warehouseId', 'name location city state');
+  async getQuoteById(id: string) {
+    return await prisma.quote.findUnique({
+      where: { id },
+      include: {
+        customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+        assignedToUser: { select: { firstName: true, lastName: true, email: true, id: true } },
+        warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
+      },
+    });
   }
 
-  async getQuotesByCustomer(customerId: string): Promise<Quote[]> {
+  async getQuotesByCustomer(customerId: string) {
     // Try cache first
     const cached = await cacheService.getUserQuotes(customerId);
     if (cached) {
       return cached;
     }
 
-    const quotes = await QuoteModel.find({ customerId })
-      .populate('warehouseId', 'name location city state')
-      .sort({ createdAt: -1 });
+    const quotes = await prisma.quote.findMany({
+      where: { customerId },
+      orderBy: { createdAt: 'desc' },
+      include: { warehouse: { select: { name: true, location: true, city: true, state: true, id: true } } },
+    });
     
     // Cache the results
     await cacheService.setUserQuotes(customerId, quotes);
@@ -50,46 +69,50 @@ export class QuoteService {
     return quotes;
   }
 
-  async getQuotesByStatus(status: string): Promise<Quote[]> {
-    return await QuoteModel.find({ status })
-      .populate('customerId', 'firstName lastName email company')
-      .populate('assignedTo', 'firstName lastName email')
-      .populate('warehouseId', 'name location city state')
-      .sort({ createdAt: -1 });
+  async getQuotesByStatus(status: QuoteStatus) {
+    return await prisma.quote.findMany({
+      where: { status },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+        assignedToUser: { select: { firstName: true, lastName: true, email: true, id: true } },
+        warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
+      },
+    });
   }
 
-  async getQuotesByAssignee(assignedTo: string): Promise<Quote[]> {
-    return await QuoteModel.find({ assignedTo })
-      .populate('customerId', 'firstName lastName email company')
-      .populate('warehouseId', 'name location city state')
-      .sort({ createdAt: -1 });
+  async getQuotesByAssignee(assignedTo: string) {
+    return await prisma.quote.findMany({
+      where: { assignedTo },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+        warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
+      },
+    });
   }
 
-  async updateQuote(id: string, updateData: Partial<Quote>): Promise<Quote | null> {
-    const quote = await QuoteModel.findByIdAndUpdate(
-      id,
-      { ...updateData, updatedAt: new Date() },
-      { new: true }
-    ).populate('customerId', 'firstName lastName email company');
+  async updateQuote(id: string, updateData: any) {
+    const quote = await prisma.quote.update({ where: { id }, data: updateData });
     
     if (quote) {
       // Invalidate user quotes cache
-      await cacheService.invalidateUserQuotes(quote.customerId._id.toString());
+      await cacheService.invalidateUserQuotes(quote.customerId);
     }
     
     return quote;
   }
 
-  async assignQuote(id: string, assignedTo: string): Promise<Quote | null> {
+  async assignQuote(id: string, assignedTo: string) {
     const quote = await this.updateQuote(id, {
-      assignedTo: assignedTo as any,
+      assignedTo: assignedTo,
       status: "processing"
     });
     
     return quote;
   }
 
-  async approveQuote(id: string, finalPrice: number, warehouseId?: string): Promise<Quote | null> {
+  async approveQuote(id: string, finalPrice: number, warehouseId?: string) {
     const updateData: any = {
       status: "quoted",
       finalPrice
@@ -113,17 +136,19 @@ export class QuoteService {
     return quote;
   }
 
-  async rejectQuote(id: string, reason?: string): Promise<Quote | null> {
+  async rejectQuote(id: string, reason?: string) {
     return await this.updateQuote(id, {
       status: "rejected",
       specialRequirements: reason ? `Rejected: ${reason}` : "Rejected"
     });
   }
 
-  async getQuotesForWarehouse(warehouseId: string): Promise<Quote[]> {
-    return await QuoteModel.find({ warehouseId })
-      .populate('customerId', 'firstName lastName email company')
-      .sort({ createdAt: -1 });
+  async getQuotesForWarehouse(warehouseId: string) {
+    return await prisma.quote.findMany({
+      where: { warehouseId },
+      orderBy: { createdAt: 'desc' },
+      include: { customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } } },
+    });
   }
 
   // Advanced filtering and search
@@ -145,28 +170,29 @@ export class QuoteService {
       sortOrder = 'desc'
     } = filters;
 
-    const filter: any = {};
+    const where: any = {};
+    if (customerId) where.customerId = customerId;
+    if (status) where.status = status;
+    if (assignedTo) where.assignedTo = assignedTo;
+    if (warehouseId) where.warehouseId = warehouseId;
+    if (storageType) where.storageType = { contains: storageType, mode: 'insensitive' };
 
-    if (customerId) filter.customerId = customerId;
-    if (status) filter.status = status;
-    if (assignedTo) filter.assignedTo = assignedTo;
-    if (warehouseId) filter.warehouseId = warehouseId;
-    if (storageType) filter.storageType = new RegExp(storageType, 'i');
-
-    const sortOptions: any = {};
-    sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
-
+    const orderBy: any = { [sortBy]: sortOrder };
     const skip = (page - 1) * limit;
 
     const [quotes, total] = await Promise.all([
-      QuoteModel.find(filter)
-        .populate('customerId', 'firstName lastName email company')
-        .populate('assignedTo', 'firstName lastName email')
-        .populate('warehouseId', 'name location city state')
-        .sort(sortOptions)
-        .skip(skip)
-        .limit(limit),
-      QuoteModel.countDocuments(filter)
+      prisma.quote.findMany({
+        where,
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          assignedToUser: { select: { firstName: true, lastName: true, email: true, id: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
+        },
+        orderBy,
+        skip,
+        take: limit,
+      }),
+      prisma.quote.count({ where })
     ]);
 
     return {
@@ -184,10 +210,10 @@ export class QuoteService {
   async getQuotesForRole(role: string, userId?: string) {
     switch (role) {
       case 'purchase_support':
-        return await this.getQuotesByStatus('pending');
+        return await this.getQuotesByStatus(QuoteStatus.pending);
       
       case 'sales_support':
-        return await this.getQuotesByStatus('processing');
+        return await this.getQuotesByStatus(QuoteStatus.processing);
       
       case 'warehouse':
         // Get quotes assigned to this warehouse user
@@ -197,7 +223,7 @@ export class QuoteService {
         return [];
       
       case 'supervisor':
-        return await this.getQuotesByStatus('quoted');
+        return await this.getQuotesByStatus(QuoteStatus.quoted);
       
       default:
         return [];
@@ -206,12 +232,12 @@ export class QuoteService {
 
   // Calculate quote pricing based on warehouse and requirements
   async calculateQuotePrice(quoteId: string): Promise<number | null> {
-    const quote = await this.getQuoteById(quoteId);
+    const quote = await prisma.quote.findUnique({ where: { id: quoteId } });
     if (!quote || !quote.warehouseId) {
       return null;
     }
 
-    const warehouse = await warehouseService.getWarehouseById(quote.warehouseId._id.toString());
+    const warehouse = await warehouseService.getWarehouseById(quote.warehouseId);
     if (!warehouse) {
       return null;
     }

@@ -2,19 +2,19 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { UserModel, type InsertUser } from "../../shared/schema";
 import { notificationService } from "../services/notificationService";
 import { generateToken } from "../middleware/auth";
+import { prisma } from "../config/prisma";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 
 export class AuthController {
   async register(req: Request, res: Response) {
     try {
-      const userData: InsertUser = req.body;
+      const userData = req.body;
       
       // Check if user already exists
-      const existingUser = await UserModel.findOne({ email: userData.email });
+      const existingUser = await prisma.user.findUnique({ where: { email: userData.email } });
       if (existingUser) {
         return res.status(400).json({ message: "Email already registered" });
       }
@@ -24,13 +24,20 @@ export class AuthController {
       const hashedPassword = await bcrypt.hash(userData.password, saltRounds);
 
       // Create user
-      const user = new UserModel({
-        ...userData,
-        password: hashedPassword,
-        role: userData.role || "customer",
+      const user = await prisma.user.create({
+        data: {
+          email: userData.email,
+          passwordHash: hashedPassword,
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          mobile: userData.mobile,
+          company: userData.company,
+          role: userData.role || "customer",
+          isActive: true,
+          isEmailVerified: false,
+          isMobileVerified: false,
+        }
       });
-
-      await user.save();
 
       // Generate verification token
       const verificationToken = crypto.randomBytes(32).toString("hex");
@@ -39,7 +46,7 @@ export class AuthController {
       // For now, we'll skip email verification in development
 
       // Generate JWT token
-      const token = generateToken(user._id.toString());
+      const token = generateToken(user.id);
 
       // Send welcome email
       await notificationService.sendEmail({
@@ -54,7 +61,7 @@ export class AuthController {
       });
 
       // Return user data without password
-      const { password, ...userResponse } = user.toObject();
+      const { passwordHash, ...userResponse } = user as any;
       res.status(201).json({
         message: "Registration successful",
         user: userResponse,
@@ -72,7 +79,7 @@ export class AuthController {
       const { email, password } = req.body;
 
       // Find user
-      const user = await UserModel.findOne({ email });
+      const user = await prisma.user.findUnique({ where: { email } });
       if (!user) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
@@ -83,20 +90,19 @@ export class AuthController {
       }
 
       // Verify password
-      const isValidPassword = await bcrypt.compare(password, user.password);
+      const isValidPassword = await bcrypt.compare(password, user.passwordHash);
       if (!isValidPassword) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
       // Generate JWT token
-      const token = generateToken(user._id.toString());
+      const token = generateToken(user.id);
 
       // Update last login (optional)
-      user.updatedAt = new Date();
-      await user.save();
+      await prisma.user.update({ where: { id: user.id }, data: { updatedAt: new Date() } });
 
       // Return user data without password
-      const { password: _, ...userResponse } = user.toObject();
+      const { passwordHash: _, ...userResponse } = user as any;
       res.json({
         message: "Login successful",
         user: userResponse,
@@ -123,7 +129,7 @@ export class AuthController {
     try {
       const { email } = req.body;
 
-      const user = await UserModel.findOne({ email });
+      const user = await prisma.user.findUnique({ where: { email } });
       if (!user) {
         // Don't reveal if email exists or not
         return res.json({ message: "If the email exists, a reset link has been sent" });
@@ -143,7 +149,7 @@ export class AuthController {
         subject: "Password Reset - Warehouse Wizard",
         html: `
           <h2>Password Reset Request</h2>
-          <p>Hello ${user.firstName},</p>
+          <p>Hello ${(user as any).firstName},</p>
           <p>You requested a password reset. Click the link below to reset your password:</p>
           <a href="${resetUrl}">Reset Password</a>
           <p>This link will expire in 1 hour.</p>
@@ -170,10 +176,7 @@ export class AuthController {
       const hashedPassword = await bcrypt.hash(password, saltRounds);
 
       // Update user password (you'll need to implement token verification)
-      // const user = await UserModel.findOneAndUpdate(
-      //   { resetToken: token, resetTokenExpiry: { $gt: new Date() } },
-      //   { password: hashedPassword, resetToken: null, resetTokenExpiry: null }
-      // );
+      // TODO: Implement reset token storage/verification with Prisma
 
       return res.json({ message: "Password reset successful" });
     } catch (error) {
@@ -198,7 +201,7 @@ export class AuthController {
     try {
       const { email } = req.body;
 
-      const user = await UserModel.findOne({ email });
+      const user = await prisma.user.findUnique({ where: { email } });
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -224,19 +227,20 @@ export class AuthController {
       const tempPassword = crypto.randomBytes(8).toString("hex");
       const hashedPassword = await bcrypt.hash(tempPassword, 12);
 
-      const guestUser = new UserModel({
-        email,
-        firstName,
-        lastName,
-        mobile,
-        company,
-        password: hashedPassword,
-        role: "customer",
-        isActive: false, // Guest users need verification
-        isEmailVerified: false,
+      const guestUser = await prisma.user.create({
+        data: {
+          email,
+          firstName,
+          lastName,
+          mobile,
+          company,
+          passwordHash: hashedPassword,
+          role: "customer",
+          isActive: false,
+          isEmailVerified: false,
+          isMobileVerified: false,
+        }
       });
-
-      await guestUser.save();
 
       // Send credentials to user
       await notificationService.sendEmail({
@@ -253,7 +257,7 @@ export class AuthController {
 
       return res.status(201).json({
         message: "Guest user created successfully",
-        userId: guestUser._id,
+        userId: guestUser.id,
       });
     } catch (error) {
       console.error("Guest user creation error:", error);

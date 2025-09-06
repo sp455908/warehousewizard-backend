@@ -2,9 +2,22 @@ import { Router } from "express";
 import { warehouseController } from "../controllers/warehouseController";
 import { authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
-import { insertWarehouseSchema } from "../../shared/schema";
+import { z } from "zod";
 
 const router = Router();
+
+const insertWarehouseSchema = z.object({
+  name: z.string().min(1),
+  location: z.string().min(1),
+  city: z.string().min(1),
+  state: z.string().min(1),
+  storageType: z.enum(["cold_storage", "dry_storage", "hazmat", "climate_controlled"]),
+  totalSpace: z.number().positive(),
+  availableSpace: z.number().positive(),
+  pricePerSqFt: z.number().positive(),
+  features: z.any().optional(),
+  isActive: z.boolean().default(true),
+});
 
 // Public routes
 router.get("/", warehouseController.getAllWarehouses);

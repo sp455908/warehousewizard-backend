@@ -1,0 +1,21 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const dashboardController_1 = require("../controllers/dashboardController");
+const auth_1 = require("../middleware/auth");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticateToken);
+router.get("/stats", dashboardController_1.dashboardController.getDashboardStats);
+router.get("/customer", (0, auth_1.authorizeRoles)("customer"), dashboardController_1.dashboardController.getCustomerDashboard);
+router.get("/purchase-support", (0, auth_1.authorizeRoles)("purchase_support"), dashboardController_1.dashboardController.getPurchaseSupportDashboard);
+router.get("/sales-support", (0, auth_1.authorizeRoles)("sales_support"), dashboardController_1.dashboardController.getSalesSupportDashboard);
+router.get("/warehouse", (0, auth_1.authorizeRoles)("warehouse"), dashboardController_1.dashboardController.getWarehouseDashboard);
+router.get("/supervisor", (0, auth_1.authorizeRoles)("supervisor"), dashboardController_1.dashboardController.getSupervisorDashboard);
+router.get("/accounts", (0, auth_1.authorizeRoles)("accounts"), dashboardController_1.dashboardController.getAccountsDashboard);
+router.get("/admin", (0, auth_1.authorizeRoles)("admin"), dashboardController_1.dashboardController.getAdminDashboard);
+router.get("/activities", dashboardController_1.dashboardController.getRecentActivities);
+router.get("/analytics/quotes", dashboardController_1.dashboardController.getQuoteAnalytics);
+router.get("/analytics/bookings", dashboardController_1.dashboardController.getBookingAnalytics);
+router.get("/analytics/revenue", (0, auth_1.authorizeRoles)("accounts", "admin"), dashboardController_1.dashboardController.getRevenueAnalytics);
+exports.default = router;
+//# sourceMappingURL=dashboardRoutes.js.map

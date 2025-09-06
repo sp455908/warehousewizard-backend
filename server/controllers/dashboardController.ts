@@ -1,17 +1,19 @@
 import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../middleware/auth";
-import { QuoteModel, BookingModel, UserModel, WarehouseModel, InvoiceModel } from "../../shared/schema";
+import { prisma } from "../config/prisma";
+
+const db: any = prisma;
 
 export class DashboardController {
   async getDashboardStats(req: AuthenticatedRequest, res: Response) {
     try {
-      const user = req.user!;
+      const user = req.user! as any;
       
       let stats: any = {};
 
       switch (user.role) {
         case "customer":
-          stats = await this.getCustomerStats(user._id.toString());
+          stats = await this.getCustomerStats(user.id || user._id?.toString());
           break;
         case "purchase_support":
           stats = await this.getPurchaseSupportStats();
@@ -20,7 +22,7 @@ export class DashboardController {
           stats = await this.getSalesSupportStats();
           break;
         case "warehouse":
-          stats = await this.getWarehouseStats(user._id.toString());
+          stats = await this.getWarehouseStats(user.id || user._id?.toString());
           break;
         case "supervisor":
           stats = await this.getSupervisorStats();
@@ -44,12 +46,27 @@ export class DashboardController {
 
   async getCustomerDashboard(req: AuthenticatedRequest, res: Response) {
     try {
-      const customerId = req.user!._id.toString();
+      const customerId = (req.user! as any).id || (req.user! as any)._id?.toString();
       
       const [quotes, bookings, invoices] = await Promise.all([
-        QuoteModel.find({ customerId }).sort({ createdAt: -1 }).limit(5),
-        BookingModel.find({ customerId }).sort({ createdAt: -1 }).limit(5),
-        InvoiceModel.find({ customerId }).sort({ createdAt: -1 }).limit(5)
+        prisma.quote.findMany({ 
+          where: { customerId },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          include: { customer: { select: { firstName: true, lastName: true, email: true, company: true } } }
+        }),
+        prisma.booking.findMany({ 
+          where: { customerId },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          include: { customer: { select: { firstName: true, lastName: true, email: true, company: true } } }
+        }),
+        prisma.invoice.findMany({ 
+          where: { customerId },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          include: { customer: { select: { firstName: true, lastName: true, email: true, company: true } } }
+        })
       ]);
 
       const stats = await this.getCustomerStats(customerId);
@@ -69,9 +86,21 @@ export class DashboardController {
   async getPurchaseSupportDashboard(req: AuthenticatedRequest, res: Response) {
     try {
       const [pendingQuotes, processingQuotes, guestCustomers] = await Promise.all([
-        QuoteModel.find({ status: "pending" }).populate('customerId', 'firstName lastName email company').sort({ createdAt: -1 }),
-        QuoteModel.find({ status: "processing" }).populate('customerId', 'firstName lastName email company').sort({ createdAt: -1 }),
-        UserModel.find({ role: "customer", isActive: false }).sort({ createdAt: -1 })
+        prisma.quote.findMany({ 
+          where: { status: "pending" },
+          orderBy: { createdAt: 'desc' },
+          include: { customer: { select: { firstName: true, lastName: true, email: true, company: true } } }
+        }),
+        prisma.quote.findMany({ 
+          where: { status: "processing" },
+          orderBy: { createdAt: 'desc' },
+          include: { customer: { select: { firstName: true, lastName: true, email: true, company: true } } }
+        }),
+        prisma.user.findMany({ 
+          where: { role: "customer", isActive: false },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, firstName: true, lastName: true, email: true, company: true, createdAt: true }
+        })
       ]);
 
       const stats = await this.getPurchaseSupportStats();
@@ -91,14 +120,22 @@ export class DashboardController {
   async getSalesSupportDashboard(req: AuthenticatedRequest, res: Response) {
     try {
       const [quotedQuotes, assignedWarehouses] = await Promise.all([
-        QuoteModel.find({ status: "quoted" })
-          .populate('customerId', 'firstName lastName email company')
-          .populate('warehouseId', 'name location')
-          .sort({ createdAt: -1 }),
-        QuoteModel.find({ status: "processing", assignedTo: { $exists: true } })
-          .populate('customerId', 'firstName lastName email company')
-          .populate('assignedTo', 'firstName lastName email')
-          .sort({ createdAt: -1 })
+        prisma.quote.findMany({ 
+          where: { status: "quoted" },
+          orderBy: { createdAt: 'desc' },
+          include: { 
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+            warehouse: { select: { name: true, location: true } }
+          }
+        }),
+        prisma.quote.findMany({ 
+          where: { status: "processing", assignedTo: { not: null } },
+          orderBy: { createdAt: 'desc' },
+          include: { 
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+            assignedToUser: { select: { firstName: true, lastName: true, email: true } }
+          }
+        })
       ]);
 
       const stats = await this.getSalesSupportStats();
@@ -116,16 +153,22 @@ export class DashboardController {
 
   async getWarehouseDashboard(req: AuthenticatedRequest, res: Response) {
     try {
-      const warehouseId = req.user!._id.toString();
+      const warehouseId = (req.user! as any).id || (req.user! as any)._id?.toString();
       
       const [assignedQuotes, confirmedBookings] = await Promise.all([
-        QuoteModel.find({ assignedTo: warehouseId })
-          .populate('customerId', 'firstName lastName email company')
-          .sort({ createdAt: -1 }),
-        BookingModel.find({ status: "confirmed" })
-          .populate('customerId', 'firstName lastName email company')
-          .populate('warehouseId', 'name location')
-          .sort({ createdAt: -1 })
+        prisma.quote.findMany({ 
+          where: { assignedTo: warehouseId },
+          orderBy: { createdAt: 'desc' },
+          include: { customer: { select: { firstName: true, lastName: true, email: true, company: true } } }
+        }),
+        prisma.booking.findMany({ 
+          where: { status: "confirmed" },
+          orderBy: { createdAt: 'desc' },
+          include: { 
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+            warehouse: { select: { name: true, location: true } }
+          }
+        })
       ]);
 
       const stats = await this.getWarehouseStats(warehouseId);
@@ -144,13 +187,19 @@ export class DashboardController {
   async getSupervisorDashboard(req: AuthenticatedRequest, res: Response) {
     try {
       const [confirmedBookings, pendingApprovals] = await Promise.all([
-        BookingModel.find({ status: "confirmed" })
-          .populate('customerId', 'firstName lastName email company')
-          .populate('warehouseId', 'name location')
-          .sort({ createdAt: -1 }),
-        QuoteModel.find({ status: "quoted" })
-          .populate('customerId', 'firstName lastName email company')
-          .sort({ createdAt: -1 })
+        prisma.booking.findMany({ 
+          where: { status: "confirmed" },
+          orderBy: { createdAt: 'desc' },
+          include: { 
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+            warehouse: { select: { name: true, location: true } }
+          }
+        }),
+        prisma.quote.findMany({ 
+          where: { status: "quoted" },
+          orderBy: { createdAt: 'desc' },
+          include: { customer: { select: { firstName: true, lastName: true, email: true, company: true } } }
+        })
       ]);
 
       const stats = await this.getSupervisorStats();
@@ -169,16 +218,22 @@ export class DashboardController {
   async getAccountsDashboard(req: AuthenticatedRequest, res: Response) {
     try {
       const [pendingInvoices, paidInvoices, overdueInvoices] = await Promise.all([
-        InvoiceModel.find({ status: "sent" })
-          .populate('customerId', 'firstName lastName email company')
-          .sort({ createdAt: -1 }),
-        InvoiceModel.find({ status: "paid" })
-          .populate('customerId', 'firstName lastName email company')
-          .sort({ paidAt: -1 })
-          .limit(10),
-        InvoiceModel.find({ status: "overdue" })
-          .populate('customerId', 'firstName lastName email company')
-          .sort({ dueDate: 1 })
+        prisma.invoice.findMany({ 
+          where: { status: "sent" },
+          orderBy: { createdAt: 'desc' },
+          include: { customer: { select: { firstName: true, lastName: true, email: true, company: true } } }
+        }),
+        prisma.invoice.findMany({ 
+          where: { status: "paid" },
+          orderBy: { paidAt: 'desc' },
+          take: 10,
+          include: { customer: { select: { firstName: true, lastName: true, email: true, company: true } } }
+        }),
+        prisma.invoice.findMany({ 
+          where: { status: "overdue" },
+          orderBy: { dueDate: 'asc' },
+          include: { customer: { select: { firstName: true, lastName: true, email: true, company: true } } }
+        })
       ]);
 
       const stats = await this.getAccountsStats();
@@ -198,7 +253,11 @@ export class DashboardController {
   async getAdminDashboard(req: AuthenticatedRequest, res: Response) {
     try {
       const [recentUsers, systemStats] = await Promise.all([
-        UserModel.find().sort({ createdAt: -1 }).limit(10),
+        prisma.user.findMany({ 
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: { id: true, firstName: true, lastName: true, email: true, role: true, isActive: true, createdAt: true }
+        }),
         this.getSystemStats()
       ]);
 
@@ -217,15 +276,17 @@ export class DashboardController {
 
   async getRecentActivities(req: AuthenticatedRequest, res: Response) {
     try {
-      const user = req.user!;
+      const user = req.user! as any;
       let activities: any[] = [];
 
       // Get recent activities based on user role
       if (user.role === "customer") {
-        const quotes = await QuoteModel.find({ customerId: user._id })
-          .sort({ updatedAt: -1 })
-          .limit(5);
-        activities = quotes.map(quote => ({
+        const quotes = await prisma.quote.findMany({ 
+          where: { customerId: user.id || user._id?.toString() },
+          orderBy: { updatedAt: 'desc' },
+          take: 5
+        });
+        activities = quotes.map((quote: any) => ({
           type: "quote",
           action: `Quote ${quote.status}`,
           timestamp: quote.updatedAt,
@@ -242,17 +303,19 @@ export class DashboardController {
 
   async getQuoteAnalytics(req: AuthenticatedRequest, res: Response) {
     try {
-      const analytics = await QuoteModel.aggregate([
-        {
-          $group: {
-            _id: "$status",
-            count: { $sum: 1 },
-            avgPrice: { $avg: "$finalPrice" }
-          }
-        }
-      ]);
+      const analytics = await prisma.quote.groupBy({
+        by: ['status'],
+        _count: { status: true },
+        _avg: { finalPrice: true }
+      });
 
-      res.json(analytics);
+      const formattedAnalytics = analytics.map((item: any) => ({
+        _id: item.status,
+        count: item._count.status,
+        avgPrice: item._avg.finalPrice
+      }));
+
+      res.json(formattedAnalytics);
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to fetch quote analytics", error });
@@ -261,17 +324,19 @@ export class DashboardController {
 
   async getBookingAnalytics(req: AuthenticatedRequest, res: Response) {
     try {
-      const analytics = await BookingModel.aggregate([
-        {
-          $group: {
-            _id: "$status",
-            count: { $sum: 1 },
-            totalAmount: { $sum: "$totalAmount" }
-          }
-        }
-      ]);
+      const analytics = await prisma.booking.groupBy({
+        by: ['status'],
+        _count: { status: true },
+        _sum: { totalAmount: true }
+      });
 
-      res.json(analytics);
+      const formattedAnalytics = analytics.map((item: any) => ({
+        _id: item.status,
+        count: item._count.status,
+        totalAmount: item._sum.totalAmount
+      }));
+
+      res.json(formattedAnalytics);
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to fetch booking analytics", error });
@@ -280,26 +345,39 @@ export class DashboardController {
 
   async getRevenueAnalytics(req: AuthenticatedRequest, res: Response) {
     try {
-      const revenue = await InvoiceModel.aggregate([
-        {
-          $match: { status: "paid" }
-        },
-        {
-          $group: {
-            _id: {
-              year: { $year: "$paidAt" },
-              month: { $month: "$paidAt" }
-            },
-            totalRevenue: { $sum: "$amount" },
-            count: { $sum: 1 }
-          }
-        },
-        {
-          $sort: { "_id.year": -1, "_id.month": -1 }
-        }
-      ]);
+      // Get paid invoices and group by month/year
+      const paidInvoices = await prisma.invoice.findMany({
+        where: { status: "paid" },
+        select: { amount: true, paidAt: true }
+      });
 
-      res.json(revenue);
+      // Group by month/year manually since Prisma doesn't have date grouping
+      const revenueByMonth = paidInvoices.reduce((acc: any, invoice: any) => {
+        if (invoice.paidAt) {
+          const date = new Date(invoice.paidAt);
+          const year = date.getFullYear();
+          const month = date.getMonth() + 1;
+          const key = `${year}-${month}`;
+          
+          if (!acc[key]) {
+            acc[key] = { totalRevenue: 0, count: 0 };
+          }
+          acc[key].totalRevenue += invoice.amount;
+          acc[key].count += 1;
+        }
+        return acc;
+      }, {});
+
+      const formattedRevenue = Object.entries(revenueByMonth).map(([key, value]: [string, any]) => {
+        const [year, month] = key.split('-');
+        return {
+          _id: { year: parseInt(year), month: parseInt(month) },
+          totalRevenue: value.totalRevenue,
+          count: value.count
+        };
+      }).sort((a, b) => b._id.year - a._id.year || b._id.month - a._id.month);
+
+      res.json(formattedRevenue);
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to fetch revenue analytics", error });
@@ -308,29 +386,29 @@ export class DashboardController {
 
   // Helper methods for stats calculation
   private async getCustomerStats(customerId: string) {
-    const [quotesCount, bookingsCount, activeBookings, totalSpent] = await Promise.all([
-      QuoteModel.countDocuments({ customerId }),
-      BookingModel.countDocuments({ customerId }),
-      BookingModel.countDocuments({ customerId, status: "active" }),
-      InvoiceModel.aggregate([
-        { $match: { customerId: customerId, status: "paid" } },
-        { $group: { _id: null, total: { $sum: "$amount" } } }
-      ])
+    const [quotesCount, bookingsCount, activeBookings, totalSpentResult] = await Promise.all([
+      prisma.quote.count({ where: { customerId } }),
+      prisma.booking.count({ where: { customerId } }),
+      prisma.booking.count({ where: { customerId, status: "active" } }),
+      prisma.invoice.aggregate({
+        where: { customerId, status: "paid" },
+        _sum: { amount: true }
+      })
     ]);
 
     return {
       totalQuotes: quotesCount,
       totalBookings: bookingsCount,
       activeBookings,
-      totalSpent: totalSpent[0]?.total || 0
+      totalSpent: totalSpentResult._sum.amount || 0
     };
   }
 
   private async getPurchaseSupportStats() {
     const [pendingQuotes, processingQuotes, guestCustomers] = await Promise.all([
-      QuoteModel.countDocuments({ status: "pending" }),
-      QuoteModel.countDocuments({ status: "processing" }),
-      UserModel.countDocuments({ role: "customer", isActive: false })
+      prisma.quote.count({ where: { status: "pending" } }),
+      prisma.quote.count({ where: { status: "processing" } }),
+      prisma.user.count({ where: { role: "customer", isActive: false } })
     ]);
 
     return {
@@ -342,9 +420,9 @@ export class DashboardController {
 
   private async getSalesSupportStats() {
     const [quotedQuotes, approvedQuotes, rejectedQuotes] = await Promise.all([
-      QuoteModel.countDocuments({ status: "quoted" }),
-      QuoteModel.countDocuments({ status: "approved" }),
-      QuoteModel.countDocuments({ status: "rejected" })
+      prisma.quote.count({ where: { status: "quoted" } }),
+      prisma.quote.count({ where: { status: "approved" } }),
+      prisma.quote.count({ where: { status: "rejected" } })
     ]);
 
     return {
@@ -356,9 +434,9 @@ export class DashboardController {
 
   private async getWarehouseStats(warehouseId: string) {
     const [assignedQuotes, confirmedBookings, activeBookings] = await Promise.all([
-      QuoteModel.countDocuments({ assignedTo: warehouseId }),
-      BookingModel.countDocuments({ status: "confirmed" }),
-      BookingModel.countDocuments({ status: "active" })
+      prisma.quote.count({ where: { assignedTo: warehouseId } }),
+      prisma.booking.count({ where: { status: "confirmed" } }),
+      prisma.booking.count({ where: { status: "active" } })
     ]);
 
     return {
@@ -370,9 +448,9 @@ export class DashboardController {
 
   private async getSupervisorStats() {
     const [pendingApprovals, confirmedBookings, completedBookings] = await Promise.all([
-      QuoteModel.countDocuments({ status: "quoted" }),
-      BookingModel.countDocuments({ status: "confirmed" }),
-      BookingModel.countDocuments({ status: "completed" })
+      prisma.quote.count({ where: { status: "quoted" } }),
+      prisma.booking.count({ where: { status: "confirmed" } }),
+      prisma.booking.count({ where: { status: "completed" } })
     ]);
 
     return {
@@ -383,30 +461,30 @@ export class DashboardController {
   }
 
   private async getAccountsStats() {
-    const [pendingInvoices, paidInvoices, overdueInvoices, totalRevenue] = await Promise.all([
-      InvoiceModel.countDocuments({ status: "sent" }),
-      InvoiceModel.countDocuments({ status: "paid" }),
-      InvoiceModel.countDocuments({ status: "overdue" }),
-      InvoiceModel.aggregate([
-        { $match: { status: "paid" } },
-        { $group: { _id: null, total: { $sum: "$amount" } } }
-      ])
+    const [pendingInvoices, paidInvoices, overdueInvoices, totalRevenueResult] = await Promise.all([
+      prisma.invoice.count({ where: { status: "sent" } }),
+      prisma.invoice.count({ where: { status: "paid" } }),
+      prisma.invoice.count({ where: { status: "overdue" } }),
+      prisma.invoice.aggregate({
+        where: { status: "paid" },
+        _sum: { amount: true }
+      })
     ]);
 
     return {
       pendingInvoices,
       paidInvoices,
       overdueInvoices,
-      totalRevenue: totalRevenue[0]?.total || 0
+      totalRevenue: totalRevenueResult._sum.amount || 0
     };
   }
 
   private async getAdminStats() {
     const [totalUsers, totalWarehouses, totalQuotes, totalBookings] = await Promise.all([
-      UserModel.countDocuments({ isActive: true }),
-      WarehouseModel.countDocuments({ isActive: true }),
-      QuoteModel.countDocuments(),
-      BookingModel.countDocuments()
+      prisma.user.count({ where: { isActive: true } }),
+      prisma.warehouse.count({ where: { isActive: true } }),
+      prisma.quote.count(),
+      prisma.booking.count()
     ]);
 
     return {
@@ -418,17 +496,30 @@ export class DashboardController {
   }
 
   private async getSystemStats() {
-    const usersByRole = await UserModel.aggregate([
-      { $group: { _id: "$role", count: { $sum: 1 } } }
+    const [usersByRole, warehousesByType] = await Promise.all([
+      prisma.user.groupBy({
+        by: ['role'],
+        _count: { role: true }
+      }),
+      prisma.warehouse.groupBy({
+        by: ['storageType'],
+        _count: { storageType: true }
+      })
     ]);
 
-    const warehousesByType = await WarehouseModel.aggregate([
-      { $group: { _id: "$storageType", count: { $sum: 1 } } }
-    ]);
+    const formattedUsersByRole = usersByRole.map((item: any) => ({
+      _id: item.role,
+      count: item._count.role
+    }));
+
+    const formattedWarehousesByType = warehousesByType.map((item: any) => ({
+      _id: item.storageType,
+      count: item._count.storageType
+    }));
 
     return {
-      usersByRole,
-      warehousesByType
+      usersByRole: formattedUsersByRole,
+      warehousesByType: formattedWarehousesByType
     };
   }
 }

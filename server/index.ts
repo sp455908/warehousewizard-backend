@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import routes from "./routes";
-import { connectToMongoDB } from "./config/database";
+import { verifyPostgresConnection } from "./config/prisma";
 import { apiLimiter } from "./middleware/rateLimiter";
 import cors from "cors";
 import helmet from "helmet";
@@ -55,8 +55,8 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Connect to databases
-  await connectToMongoDB();
+  // Connect to PostgreSQL database via Prisma
+  await verifyPostgresConnection();
   
   // Setup API routes
   app.use("/api", routes);
@@ -77,6 +77,7 @@ app.use((req, res, next) => {
     port,
     host: "0.0.0.0",
   }, () => {
-    console.log(`serving on port ${port}`); // ✅ Backend running at http://localhost:5000
+    console.log(`🚀 Server running on port ${port}`); // ✅ Backend running at http://localhost:5000
+    console.log(`📊 Connected to PostgreSQL via Prisma`);
   });
 })();

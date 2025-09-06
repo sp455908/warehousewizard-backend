@@ -1,15 +1,21 @@
 import { Request, Response } from "express";
-import { CargoDispatchDetailModel, type InsertCargoDispatchDetail } from "../../shared/schema";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { notificationService } from "../services/notificationService";
+import { prisma } from "../config/prisma";
 
 export class CargoController {
   async createCargoDispatch(req: AuthenticatedRequest, res: Response) {
     try {
-      const cargoData: InsertCargoDispatchDetail = req.body;
-      
-      const cargo = new CargoDispatchDetailModel(cargoData);
-      await cargo.save();
+      const cargoData = req.body;
+      const cargo = await prisma.cargoDispatchDetail.create({ data: {
+        bookingId: cargoData.bookingId,
+        itemDescription: cargoData.itemDescription,
+        quantity: cargoData.quantity,
+        weight: cargoData.weight ?? null,
+        dimensions: cargoData.dimensions ?? null,
+        specialHandling: cargoData.specialHandling ?? null,
+        status: cargoData.status || 'submitted',
+      } });
 
       res.status(201).json(cargo);
       return;
@@ -20,17 +26,17 @@ export class CargoController {
 
   async getCargoDispatches(req: AuthenticatedRequest, res: Response) {
     try {
-      const user = req.user!;
+      const user = req.user! as any;
       const { bookingId, status } = req.query;
       
       let filter: any = {};
       
       if (bookingId) {
-        filter.bookingId = bookingId;
+        filter.bookingId = bookingId as string;
       }
       
       if (status) {
-        filter.status = status;
+        filter.status = status as string;
       } else {
         // Default filter based on role
         if (user.role === "supervisor") {
@@ -38,10 +44,14 @@ export class CargoController {
         }
       }
 
-      const cargoItems = await CargoDispatchDetailModel.find(filter)
-        .populate('bookingId', 'customerId warehouseId')
-        .populate('approvedBy', 'firstName lastName email')
-        .sort({ createdAt: -1 });
+      const cargoItems = await prisma.cargoDispatchDetail.findMany({
+        where: filter,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } },
+          booking: { select: { id: true, customerId: true, warehouseId: true } }
+        }
+      });
 
       res.json(cargoItems);
       return;
@@ -53,10 +63,13 @@ export class CargoController {
   async getCargoDispatchById(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      
-      const cargo = await CargoDispatchDetailModel.findById(id)
-        .populate('bookingId', 'customerId warehouseId startDate endDate')
-        .populate('approvedBy', 'firstName lastName email');
+      const cargo = await prisma.cargoDispatchDetail.findUnique({
+        where: { id },
+        include: {
+          approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } },
+          booking: { select: { id: true, customerId: true, warehouseId: true, startDate: true, endDate: true } }
+        }
+      });
 
       if (!cargo) {
         return res.status(404).json({ message: "Cargo dispatch not found" });
@@ -73,12 +86,14 @@ export class CargoController {
     try {
       const { id } = req.params;
       const updateData = req.body;
-
-      const cargo = await CargoDispatchDetailModel.findByIdAndUpdate(
-        id,
-        { ...updateData, updatedAt: new Date() },
-        { new: true }
-      ).populate('bookingId').populate('approvedBy', 'firstName lastName email');
+      const cargo = await prisma.cargoDispatchDetail.update({
+        where: { id },
+        data: { ...updateData, updatedAt: new Date() as any },
+        include: {
+          booking: true,
+          approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } }
+        }
+      });
 
       if (!cargo) {
         return res.status(404).json({ message: "Cargo dispatch not found" });
@@ -94,10 +109,11 @@ export class CargoController {
   async getCargoByBooking(req: AuthenticatedRequest, res: Response) {
     try {
       const { bookingId } = req.params;
-      
-      const cargoItems = await CargoDispatchDetailModel.find({ bookingId })
-        .populate('approvedBy', 'firstName lastName email')
-        .sort({ createdAt: -1 });
+      const cargoItems = await prisma.cargoDispatchDetail.findMany({
+        where: { bookingId },
+        orderBy: { createdAt: 'desc' },
+        include: { approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } } }
+      });
 
       res.json(cargoItems);
       return;
@@ -109,17 +125,12 @@ export class CargoController {
   async approveCargo(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const supervisorId = req.user!._id.toString();
-
-      const cargo = await CargoDispatchDetailModel.findByIdAndUpdate(
-        id,
-        { 
-          status: "approved",
-          approvedBy: supervisorId,
-          updatedAt: new Date()
-        },
-        { new: true }
-      ).populate('bookingId');
+      const supervisorId = (req.user as any)?.id || (req.user as any)?._id?.toString();
+      const cargo = await prisma.cargoDispatchDetail.update({
+        where: { id },
+        data: { status: "approved", approvedById: supervisorId, updatedAt: new Date() as any },
+        include: { booking: true }
+      });
 
       if (!cargo) {
         return res.status(404).json({ message: "Cargo dispatch not found" });
@@ -127,13 +138,13 @@ export class CargoController {
 
       // Send notification
       await notificationService.sendEmail({
-        to: "warehouse@example.com", // Get warehouse email from booking
+        to: "warehouse@example.com", // TODO: Get warehouse email from booking
         subject: "Cargo Dispatch Approved",
         html: `
           <h2>Cargo Dispatch Approved</h2>
-          <p>Cargo dispatch (ID: ${cargo._id}) has been approved.</p>
-          <p>Item: ${cargo.itemDescription}</p>
-          <p>Quantity: ${cargo.quantity}</p>
+          <p>Cargo dispatch (ID: ${(cargo as any).id}) has been approved.</p>
+          <p>Item: ${(cargo as any).itemDescription}</p>
+          <p>Quantity: ${(cargo as any).quantity}</p>
         `,
       });
 
@@ -148,16 +159,14 @@ export class CargoController {
     try {
       const { id } = req.params;
       const { reason } = req.body;
-
-      const cargo = await CargoDispatchDetailModel.findByIdAndUpdate(
-        id,
-        { 
-          status: "submitted", // Reset to submitted for revision
+      const cargo = await prisma.cargoDispatchDetail.update({
+        where: { id },
+        data: {
+          status: "submitted",
           specialHandling: reason ? `Rejected: ${reason}` : "Rejected",
-          updatedAt: new Date()
-        },
-        { new: true }
-      );
+          updatedAt: new Date() as any
+        }
+      });
 
       if (!cargo) {
         return res.status(404).json({ message: "Cargo dispatch not found" });
@@ -173,15 +182,7 @@ export class CargoController {
   async processCargo(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-
-      const cargo = await CargoDispatchDetailModel.findByIdAndUpdate(
-        id,
-        { 
-          status: "processing",
-          updatedAt: new Date()
-        },
-        { new: true }
-      );
+      const cargo = await prisma.cargoDispatchDetail.update({ where: { id }, data: { status: "processing", updatedAt: new Date() as any } });
 
       if (!cargo) {
         return res.status(404).json({ message: "Cargo dispatch not found" });
@@ -197,15 +198,7 @@ export class CargoController {
   async completeCargo(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-
-      const cargo = await CargoDispatchDetailModel.findByIdAndUpdate(
-        id,
-        { 
-          status: "completed",
-          updatedAt: new Date()
-        },
-        { new: true }
-      );
+      const cargo = await prisma.cargoDispatchDetail.update({ where: { id }, data: { status: "completed", updatedAt: new Date() as any } });
 
       if (!cargo) {
         return res.status(404).json({ message: "Cargo dispatch not found" });
@@ -221,9 +214,11 @@ export class CargoController {
   // Status-specific getters
   async getSubmittedCargo(req: AuthenticatedRequest, res: Response) {
     try {
-      const cargoItems = await CargoDispatchDetailModel.find({ status: "submitted" })
-        .populate('bookingId', 'customerId warehouseId')
-        .sort({ createdAt: -1 });
+      const cargoItems = await prisma.cargoDispatchDetail.findMany({
+        where: { status: "submitted" },
+        orderBy: { createdAt: 'desc' },
+        include: { booking: { select: { id: true, customerId: true, warehouseId: true } } }
+      });
 
       res.json(cargoItems);
       return;
@@ -234,10 +229,14 @@ export class CargoController {
 
   async getApprovedCargo(req: AuthenticatedRequest, res: Response) {
     try {
-      const cargoItems = await CargoDispatchDetailModel.find({ status: "approved" })
-        .populate('bookingId', 'customerId warehouseId')
-        .populate('approvedBy', 'firstName lastName')
-        .sort({ createdAt: -1 });
+      const cargoItems = await prisma.cargoDispatchDetail.findMany({
+        where: { status: "approved" },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          booking: { select: { id: true, customerId: true, warehouseId: true } },
+          approvedBy: { select: { firstName: true, lastName: true, id: true } }
+        }
+      });
 
       res.json(cargoItems);
       return;
@@ -248,9 +247,11 @@ export class CargoController {
 
   async getProcessingCargo(req: AuthenticatedRequest, res: Response) {
     try {
-      const cargoItems = await CargoDispatchDetailModel.find({ status: "processing" })
-        .populate('bookingId', 'customerId warehouseId')
-        .sort({ createdAt: -1 });
+      const cargoItems = await prisma.cargoDispatchDetail.findMany({
+        where: { status: "processing" },
+        orderBy: { createdAt: 'desc' },
+        include: { booking: { select: { id: true, customerId: true, warehouseId: true } } }
+      });
 
       res.json(cargoItems);
       return;
@@ -261,9 +262,11 @@ export class CargoController {
 
   async getCompletedCargo(req: AuthenticatedRequest, res: Response) {
     try {
-      const cargoItems = await CargoDispatchDetailModel.find({ status: "completed" })
-        .populate('bookingId', 'customerId warehouseId')
-        .sort({ createdAt: -1 });
+      const cargoItems = await prisma.cargoDispatchDetail.findMany({
+        where: { status: "completed" },
+        orderBy: { createdAt: 'desc' },
+        include: { booking: { select: { id: true, customerId: true, warehouseId: true } } }
+      });
 
       res.json(cargoItems);
       return;

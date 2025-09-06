@@ -2,7 +2,6 @@ import { Router } from "express";
 import { authController } from "../controllers/authController";
 import { validateRequest } from "../middleware/validation";
 import { authLimiter } from "../middleware/rateLimiter";
-import { insertUserSchema } from "../../shared/schema";
 import { z } from "zod";
 
 const router = Router();
@@ -21,11 +20,20 @@ const resetPasswordSchema = z.object({
   password: z.string().min(6),
 });
 
+const registerSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+  mobile: z.string().optional(),
+  company: z.string().optional(),
+});
+
 // Apply rate limiting to auth routes
 router.use(authLimiter);
 
 // Public auth routes
-router.post("/register", validateRequest(insertUserSchema), authController.register);
+router.post("/register", validateRequest(registerSchema), authController.register);
 router.post("/login", validateRequest(loginSchema), authController.login);
 router.post("/logout", authController.logout);
 router.post("/forgot-password", validateRequest(forgotPasswordSchema), authController.forgotPassword);

@@ -1,34 +1,44 @@
 import { Request, Response } from "express";
-import { BookingModel, type InsertBooking } from "../../shared/schema";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { notificationService } from "../services/notificationService";
 import { warehouseService } from "../services/warehouseService";
+import { prisma } from "../config/prisma";
 
 export class BookingController {
   async createBooking(req: AuthenticatedRequest, res: Response) {
     try {
-      const bookingData: InsertBooking = {
+      const authUserId = req.user?.id;
+      const bookingData = {
         ...req.body,
-        customerId: req.user!._id.toString(),
+        customerId: authUserId,
       };
 
       // Check warehouse availability
       const isAvailable = await warehouseService.checkAvailability(
         bookingData.warehouseId,
-        req.body.requiredSpace || 0
+        (req.body as any).requiredSpace || 0
       );
 
       if (!isAvailable) {
         return res.status(400).json({ message: "Insufficient warehouse space available" });
       }
 
-      const booking = new BookingModel(bookingData);
-      await booking.save();
+      const booking = await prisma.booking.create({
+        data: {
+          quoteId: bookingData.quoteId,
+          customerId: bookingData.customerId,
+          warehouseId: bookingData.warehouseId,
+          status: bookingData.status || 'pending',
+          startDate: new Date(bookingData.startDate as any),
+          endDate: new Date(bookingData.endDate as any),
+          totalAmount: bookingData.totalAmount,
+        }
+      });
 
       // Send confirmation notification
       await notificationService.sendBookingConfirmationNotification(
-        req.user!.email,
-        booking._id.toString()
+        (req.user as any).email,
+        booking.id
       );
 
       res.status(201).json(booking);
@@ -40,26 +50,23 @@ export class BookingController {
 
   async getBookings(req: AuthenticatedRequest, res: Response) {
     try {
-      const user = req.user!;
-      let bookings;
-
+      const user = req.user! as any;
+      let where: any = {};
       if (user.role === "customer") {
-        bookings = await BookingModel.find({ customerId: user._id })
-          .populate('warehouseId', 'name location city state')
-          .populate('quoteId')
-          .sort({ createdAt: -1 });
+        where.customerId = user.id || user._id?.toString();
       } else if (user.role === "supervisor") {
-        bookings = await BookingModel.find({ status: "pending" })
-          .populate('customerId', 'firstName lastName email company')
-          .populate('warehouseId', 'name location city state')
-          .sort({ createdAt: -1 });
-      } else {
-        // Admin and other roles can see all
-        bookings = await BookingModel.find()
-          .populate('customerId', 'firstName lastName email company')
-          .populate('warehouseId', 'name location city state')
-          .sort({ createdAt: -1 });
+        where.status = "pending";
       }
+      const bookings = await prisma.booking.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
+          quote: true,
+          approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } }
+        }
+      });
 
       res.json(bookings);
       return;
@@ -71,19 +78,23 @@ export class BookingController {
   async getBookingById(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const booking = await BookingModel.findById(id)
-        .populate('customerId', 'firstName lastName email company')
-        .populate('warehouseId', 'name location city state features')
-        .populate('quoteId')
-        .populate('approvedBy', 'firstName lastName email');
+      const booking = await prisma.booking.findUnique({
+        where: { id },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true, features: true, id: true } },
+          quote: true,
+          approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } }
+        }
+      });
 
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
       }
 
       // Check permissions
-      const user = req.user!;
-      if (user.role === "customer" && (booking.customerId as any)._id.toString() !== user._id.toString()) {
+      const user = req.user! as any;
+      if (user.role === "customer" && (booking as any).customerId !== (user.id || user._id?.toString())) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -98,13 +109,14 @@ export class BookingController {
     try {
       const { id } = req.params;
       const updateData = req.body;
-
-      const booking = await BookingModel.findByIdAndUpdate(
-        id,
-        { ...updateData, updatedAt: new Date() },
-        { new: true }
-      ).populate('customerId', 'firstName lastName email company')
-       .populate('warehouseId', 'name location city state');
+      const booking = await prisma.booking.update({
+        where: { id },
+        data: { ...updateData, updatedAt: new Date() as any },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true, id: true } }
+        }
+      });
 
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
@@ -120,17 +132,16 @@ export class BookingController {
   async confirmBooking(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const supervisorId = req.user!._id.toString();
-
-      const booking = await BookingModel.findByIdAndUpdate(
-        id,
-        { 
+      const supervisorId = (req.user as any)?.id || (req.user as any)?._id?.toString();
+      const booking = await prisma.booking.update({
+        where: { id },
+        data: {
           status: "confirmed",
-          approvedBy: supervisorId,
-          updatedAt: new Date()
+          approvedById: supervisorId,
+          updatedAt: new Date() as any
         },
-        { new: true }
-      ).populate('customerId', 'firstName lastName email company');
+        include: { customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } } }
+      });
 
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
@@ -142,8 +153,8 @@ export class BookingController {
 
       // Send confirmation notification
       await notificationService.sendBookingConfirmationNotification(
-        (booking.customerId as any).email,
-        booking._id.toString()
+        (booking as any).customer.email,
+        booking.id
       );
 
       res.json(booking);
@@ -157,15 +168,11 @@ export class BookingController {
     try {
       const { id } = req.params;
       const { reason } = req.body;
-
-      const booking = await BookingModel.findByIdAndUpdate(
-        id,
-        { 
-          status: "cancelled",
-          updatedAt: new Date()
-        },
-        { new: true }
-      ).populate('customerId', 'firstName lastName email company');
+      const booking = await prisma.booking.update({
+        where: { id },
+        data: { status: "cancelled", updatedAt: new Date() as any },
+        include: { customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } } }
+      });
 
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
@@ -173,11 +180,11 @@ export class BookingController {
 
       // Send cancellation notification
       await notificationService.sendEmail({
-        to: (booking.customerId as any).email,
+        to: (booking as any).customer.email,
         subject: "Booking Cancelled - Warehouse Wizard",
         html: `
           <h2>Booking Cancelled</h2>
-          <p>Your booking (ID: ${booking._id}) has been cancelled.</p>
+          <p>Your booking (ID: ${booking.id}) has been cancelled.</p>
           ${reason ? `<p>Reason: ${reason}</p>` : ''}
           <p>If you have any questions, please contact our support team.</p>
         `,
@@ -193,10 +200,8 @@ export class BookingController {
   async approveBooking(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const customerId = req.user!._id.toString();
-
-      // Verify the booking belongs to the customer
-      const booking = await BookingModel.findOne({ _id: id, customerId });
+      const customerId = (req.user as any)?.id || (req.user as any)?._id?.toString();
+      const booking = await prisma.booking.findFirst({ where: { id, customerId } });
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
       }
@@ -204,18 +209,11 @@ export class BookingController {
       // Remove or adjust this check, as 'quoted' is not a valid Booking status
       // If you want to check for a specific valid status, use one of the allowed values:
       // "pending", "confirmed", "active", "completed", "cancelled"
-      if (booking.status !== "pending") {
+      if ((booking as any).status !== "pending") {
         return res.status(400).json({ message: "Booking cannot be approved in current status" });
       }
 
-      const updatedBooking = await BookingModel.findByIdAndUpdate(
-        id,
-        { 
-          status: "pending",
-          updatedAt: new Date()
-        },
-        { new: true }
-      );
+      const updatedBooking = await prisma.booking.update({ where: { id }, data: { status: "pending", updatedAt: new Date() as any } });
 
       res.json(updatedBooking);
       return;
@@ -228,16 +226,8 @@ export class BookingController {
     try {
       const { id } = req.params;
       const { reason } = req.body;
-      const customerId = req.user!._id.toString();
-
-      const booking = await BookingModel.findOneAndUpdate(
-        { _id: id, customerId },
-        { 
-          status: "cancelled",
-          updatedAt: new Date()
-        },
-        { new: true }
-      );
+      const customerId = (req.user as any)?.id || (req.user as any)?._id?.toString();
+      const booking = await prisma.booking.update({ where: { id }, data: { status: "cancelled", updatedAt: new Date() as any } });
 
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
@@ -253,10 +243,14 @@ export class BookingController {
   // Status-specific getters
   async getPendingBookings(req: AuthenticatedRequest, res: Response) {
     try {
-      const bookings = await BookingModel.find({ status: "pending" })
-        .populate('customerId', 'firstName lastName email company')
-        .populate('warehouseId', 'name location city state')
-        .sort({ createdAt: -1 });
+      const bookings = await prisma.booking.findMany({
+        where: { status: "pending" },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true, id: true } }
+        }
+      });
 
       res.json(bookings);
       return;
@@ -267,18 +261,18 @@ export class BookingController {
 
   async getConfirmedBookings(req: AuthenticatedRequest, res: Response) {
     try {
-      const user = req.user!;
-      let filter: any = { status: "confirmed" };
-
-      if (user.role === "customer") {
-        filter.customerId = user._id;
-      }
-
-      const bookings = await BookingModel.find(filter)
-        .populate('customerId', 'firstName lastName email company')
-        .populate('warehouseId', 'name location city state')
-        .populate('approvedBy', 'firstName lastName')
-        .sort({ createdAt: -1 });
+      const user = req.user! as any;
+      let where: any = { status: "confirmed" };
+      if (user.role === "customer") where.customerId = user.id || user._id?.toString();
+      const bookings = await prisma.booking.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
+          approvedBy: { select: { firstName: true, lastName: true, id: true } }
+        }
+      });
 
       res.json(bookings);
       return;
@@ -289,17 +283,17 @@ export class BookingController {
 
   async getActiveBookings(req: AuthenticatedRequest, res: Response) {
     try {
-      const user = req.user!;
-      let filter: any = { status: "active" };
-
-      if (user.role === "customer") {
-        filter.customerId = user._id;
-      }
-
-      const bookings = await BookingModel.find(filter)
-        .populate('customerId', 'firstName lastName email company')
-        .populate('warehouseId', 'name location city state')
-        .sort({ createdAt: -1 });
+      const user = req.user! as any;
+      let where: any = { status: "active" };
+      if (user.role === "customer") where.customerId = user.id || user._id?.toString();
+      const bookings = await prisma.booking.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true, id: true } }
+        }
+      });
 
       res.json(bookings);
       return;
@@ -310,17 +304,17 @@ export class BookingController {
 
   async getCompletedBookings(req: AuthenticatedRequest, res: Response) {
     try {
-      const user = req.user!;
-      let filter: any = { status: "completed" };
-
-      if (user.role === "customer") {
-        filter.customerId = user._id;
-      }
-
-      const bookings = await BookingModel.find(filter)
-        .populate('customerId', 'firstName lastName email company')
-        .populate('warehouseId', 'name location city state')
-        .sort({ createdAt: -1 });
+      const user = req.user! as any;
+      let where: any = { status: "completed" };
+      if (user.role === "customer") where.customerId = user.id || user._id?.toString();
+      const bookings = await prisma.booking.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true, id: true } }
+        }
+      });
 
       res.json(bookings);
       return;

@@ -1,14 +1,15 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import { UserModel, type InsertUser } from "../../shared/schema";
+import { prisma } from "../config/prisma";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { notificationService } from "../services/notificationService";
+import { UserRole } from "@prisma/client";
 
 export class UserController {
   async getProfile(req: AuthenticatedRequest, res: Response) {
     try {
       const user = req.user!;
-      const { password, ...userProfile } = user.toObject();
+      const { passwordHash, ...userProfile } = user;
       res.json(userProfile);
       return;
     } catch (error) {
@@ -18,25 +19,24 @@ export class UserController {
 
   async updateProfile(req: AuthenticatedRequest, res: Response) {
     try {
-      const userId = req.user!._id.toString();
+      const userId = req.user!.id;
       const updateData = req.body;
       
       // Remove sensitive fields that shouldn't be updated via this endpoint
-      delete updateData.password;
+      delete updateData.passwordHash;
       delete updateData.role;
       delete updateData.isActive;
 
-      const user = await UserModel.findByIdAndUpdate(
-        userId,
-        { ...updateData, updatedAt: new Date() },
-        { new: true }
-      );
+      const user = await prisma.user.update({
+        where: { id: userId },
+        data: updateData
+      });
 
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      const { password, ...userProfile } = user.toObject();
+      const { passwordHash, ...userProfile } = user;
       res.json(userProfile);
       return;
     } catch (error) {
@@ -46,17 +46,19 @@ export class UserController {
 
   async changePassword(req: AuthenticatedRequest, res: Response) {
     try {
-      const userId = req.user!._id.toString();
+      const userId = req.user!.id;
       const { currentPassword, newPassword } = req.body;
 
       // Get user with password
-      const user = await UserModel.findById(userId);
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
       // Verify current password
-      const isValidPassword = await bcrypt.compare(currentPassword, user.password);
+      const isValidPassword = await bcrypt.compare(currentPassword, user.passwordHash);
       if (!isValidPassword) {
         return res.status(400).json({ message: "Current password is incorrect" });
       }
@@ -66,9 +68,9 @@ export class UserController {
       const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
       // Update password
-      await UserModel.findByIdAndUpdate(userId, { 
-        password: hashedPassword,
-        updatedAt: new Date()
+      await prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash: hashedPassword }
       });
 
       res.json({ message: "Password changed successfully" });
@@ -83,18 +85,33 @@ export class UserController {
       const { role, isActive, page = 1, limit = 20 } = req.query;
       
       const filter: any = {};
-      if (role) filter.role = role;
+      if (role) filter.role = role as UserRole;
       if (isActive !== undefined) filter.isActive = isActive === 'true';
 
       const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
 
       const [users, total] = await Promise.all([
-        UserModel.find(filter)
-          .select('-password')
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(parseInt(limit as string)),
-        UserModel.countDocuments(filter)
+        prisma.user.findMany({
+          where: filter,
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            mobile: true,
+            company: true,
+            role: true,
+            isActive: true,
+            isEmailVerified: true,
+            isMobileVerified: true,
+            createdAt: true,
+            updatedAt: true
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: parseInt(limit as string)
+        }),
+        prisma.user.count({ where: filter })
       ]);
 
       res.json({
@@ -116,7 +133,23 @@ export class UserController {
     try {
       const { id } = req.params;
       
-      const user = await UserModel.findById(id).select('-password');
+      const user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          mobile: true,
+          company: true,
+          role: true,
+          isActive: true,
+          isEmailVerified: true,
+          isMobileVerified: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -130,10 +163,12 @@ export class UserController {
 
   async createUser(req: AuthenticatedRequest, res: Response) {
     try {
-      const userData: InsertUser = req.body;
+      const userData = req.body;
       
       // Check if user already exists
-      const existingUser = await UserModel.findOne({ email: userData.email });
+      const existingUser = await prisma.user.findUnique({ 
+        where: { email: userData.email } 
+      });
       if (existingUser) {
         return res.status(400).json({ message: "Email already exists" });
       }
@@ -143,12 +178,20 @@ export class UserController {
       const hashedPassword = await bcrypt.hash(userData.password, saltRounds);
 
       // Create user
-      const user = new UserModel({
-        ...userData,
-        password: hashedPassword,
+      const user = await prisma.user.create({
+        data: {
+          email: userData.email,
+          passwordHash: hashedPassword,
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          mobile: userData.mobile,
+          company: userData.company,
+          role: userData.role || 'customer',
+          isActive: userData.isActive ?? true,
+          isEmailVerified: userData.isEmailVerified ?? false,
+          isMobileVerified: userData.isMobileVerified ?? false,
+        }
       });
-
-      await user.save();
 
       // Send welcome email
       await notificationService.sendEmail({
@@ -165,7 +208,7 @@ export class UserController {
       });
 
       // Return user without password
-      const { password, ...userResponse } = user.toObject();
+      const { passwordHash, ...userResponse } = user;
       res.status(201).json(userResponse);
       return;
     } catch (error) {
@@ -179,7 +222,7 @@ export class UserController {
       const updateData = req.body;
 
       // Check if user exists and is an admin
-      const existingUser = await UserModel.findById(id);
+      const existingUser = await prisma.user.findUnique({ where: { id } });
       if (!existingUser) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -192,14 +235,28 @@ export class UserController {
       // If password is being updated, hash it
       if (updateData.password) {
         const saltRounds = 12;
-        updateData.password = await bcrypt.hash(updateData.password, saltRounds);
+        updateData.passwordHash = await bcrypt.hash(updateData.password, saltRounds);
+        delete updateData.password;
       }
 
-      const user = await UserModel.findByIdAndUpdate(
-        id,
-        { ...updateData, updatedAt: new Date() },
-        { new: true }
-      ).select('-password');
+      const user = await prisma.user.update({
+        where: { id },
+        data: updateData,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          mobile: true,
+          company: true,
+          role: true,
+          isActive: true,
+          isEmailVerified: true,
+          isMobileVerified: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
 
       res.json(user);
       return;
@@ -211,7 +268,7 @@ export class UserController {
   async deleteUser(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const currentUserId = req.user!._id.toString();
+      const currentUserId = req.user!.id;
 
       // Prevent admin from deleting themselves
       if (id === currentUserId) {
@@ -219,7 +276,7 @@ export class UserController {
       }
 
       // Check if user exists and is an admin
-      const existingUser = await UserModel.findById(id);
+      const existingUser = await prisma.user.findUnique({ where: { id } });
       if (!existingUser) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -229,7 +286,7 @@ export class UserController {
         return res.status(403).json({ message: "Admin users cannot be deleted" });
       }
 
-      const user = await UserModel.findByIdAndDelete(id);
+      await prisma.user.delete({ where: { id } });
 
       res.json({ message: "User deleted successfully" });
       return;
@@ -242,9 +299,27 @@ export class UserController {
     try {
       const { role } = req.params;
       
-      const users = await UserModel.find({ role, isActive: true })
-        .select('-password')
-        .sort({ firstName: 1, lastName: 1 });
+      const users = await prisma.user.findMany({
+        where: { role: role as UserRole, isActive: true },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          mobile: true,
+          company: true,
+          role: true,
+          isActive: true,
+          isEmailVerified: true,
+          isMobileVerified: true,
+          createdAt: true,
+          updatedAt: true
+        },
+        orderBy: [
+          { firstName: 'asc' },
+          { lastName: 'asc' }
+        ]
+      });
 
       res.json(users);
       return;
@@ -258,7 +333,7 @@ export class UserController {
       const { id } = req.params;
 
       // Check if user exists and is an admin
-      const existingUser = await UserModel.findById(id);
+      const existingUser = await prisma.user.findUnique({ where: { id } });
       if (!existingUser) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -268,11 +343,24 @@ export class UserController {
         return res.status(403).json({ message: "Admin users cannot be deactivated" });
       }
 
-      const user = await UserModel.findByIdAndUpdate(
-        id,
-        { isActive: true, updatedAt: new Date() },
-        { new: true }
-      ).select('-password');
+      const user = await prisma.user.update({
+        where: { id },
+        data: { isActive: true },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          mobile: true,
+          company: true,
+          role: true,
+          isActive: true,
+          isEmailVerified: true,
+          isMobileVerified: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
 
       if (!user) {
         return res.status(404).json({ message: "User not found" });
@@ -299,7 +387,7 @@ export class UserController {
   async deactivateUser(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const currentUserId = req.user!._id.toString();
+      const currentUserId = req.user!.id;
 
       // Prevent admin from deactivating themselves
       if (id === currentUserId) {
@@ -307,7 +395,7 @@ export class UserController {
       }
 
       // Check if user exists and is an admin
-      const existingUser = await UserModel.findById(id);
+      const existingUser = await prisma.user.findUnique({ where: { id } });
       if (!existingUser) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -317,11 +405,24 @@ export class UserController {
         return res.status(403).json({ message: "Admin users cannot be deactivated" });
       }
 
-      const user = await UserModel.findByIdAndUpdate(
-        id,
-        { isActive: false, updatedAt: new Date() },
-        { new: true }
-      ).select('-password');
+      const user = await prisma.user.update({
+        where: { id },
+        data: { isActive: false },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          mobile: true,
+          company: true,
+          role: true,
+          isActive: true,
+          isEmailVerified: true,
+          isMobileVerified: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
 
       if (!user) {
         return res.status(404).json({ message: "User not found" });
@@ -338,29 +439,50 @@ export class UserController {
     try {
       const { id } = req.params;
 
-      const user = await UserModel.findOneAndUpdate(
-        { _id: id, role: "customer", isActive: false },
-        { isActive: true, updatedAt: new Date() },
-        { new: true }
-      ).select('-password');
+      const user = await prisma.user.updateMany({
+        where: { id, role: "customer", isActive: false },
+        data: { isActive: true }
+      });
 
-      if (!user) {
+      if (user.count === 0) {
+        return res.status(404).json({ message: "Guest customer not found" });
+      }
+
+      const updatedUser = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          mobile: true,
+          company: true,
+          role: true,
+          isActive: true,
+          isEmailVerified: true,
+          isMobileVerified: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+
+      if (!updatedUser) {
         return res.status(404).json({ message: "Guest customer not found" });
       }
 
       // Send verification notification
       await notificationService.sendEmail({
-        to: user.email,
+        to: updatedUser.email,
         subject: "Account Verified - Warehouse Wizard",
         html: `
           <h2>Account Verified</h2>
-          <p>Hello ${user.firstName},</p>
+          <p>Hello ${updatedUser.firstName},</p>
           <p>Your guest account has been verified and activated.</p>
           <p>You can now access all customer features.</p>
         `,
       });
 
-      res.json(user);
+      res.json(updatedUser);
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to verify guest customer", error });
@@ -369,12 +491,27 @@ export class UserController {
 
   async getPendingGuestCustomers(req: AuthenticatedRequest, res: Response) {
     try {
-      const guestCustomers = await UserModel.find({
-        role: "customer",
-        isActive: false
-      })
-      .select('-password')
-      .sort({ createdAt: -1 });
+      const guestCustomers = await prisma.user.findMany({
+        where: {
+          role: "customer",
+          isActive: false
+        },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          mobile: true,
+          company: true,
+          role: true,
+          isActive: true,
+          isEmailVerified: true,
+          isMobileVerified: true,
+          createdAt: true,
+          updatedAt: true
+        },
+        orderBy: { createdAt: 'desc' }
+      });
 
       res.json(guestCustomers);
       return;
@@ -385,8 +522,8 @@ export class UserController {
 
   async getRoles(req: AuthenticatedRequest, res: Response) {
     try {
-      // Import userRoles from schema
-      const { userRoles } = require("../../shared/schema");
+      // Define user roles from Prisma enum
+      const userRoles = ['customer', 'purchase_support', 'sales_support', 'supervisor', 'warehouse', 'accounts', 'admin'];
       
       // Return roles with additional metadata
       const roles = userRoles.map((role: string) => ({

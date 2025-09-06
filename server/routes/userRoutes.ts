@@ -2,9 +2,22 @@ import { Router } from "express";
 import { userController } from "../controllers/userController";
 import { authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
-import { insertUserSchema } from "../../shared/schema";
+import { z } from "zod";
 
 const router = Router();
+
+const insertUserSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+  mobile: z.string().optional(),
+  company: z.string().optional(),
+  role: z.enum(["customer", "purchase_support", "sales_support", "supervisor", "warehouse", "accounts", "admin"]).default("customer"),
+  isActive: z.boolean().default(true),
+  isEmailVerified: z.boolean().default(false),
+  isMobileVerified: z.boolean().default(false),
+});
 
 // All user routes require authentication
 router.use(authenticateToken);

@@ -2,9 +2,19 @@ import { Router } from "express";
 import { invoiceController } from "../controllers/invoiceController";
 import { authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
-import { insertInvoiceSchema } from "../../shared/schema";
+import { z } from "zod";
 
 const router = Router();
+
+const insertInvoiceSchema = z.object({
+  bookingId: z.string(),
+  customerId: z.string(),
+  invoiceNumber: z.string().min(1),
+  amount: z.number().positive(),
+  status: z.enum(["draft", "sent", "paid", "overdue", "cancelled"]).default("draft"),
+  dueDate: z.string().transform(str => new Date(str)),
+  paidAt: z.string().transform(str => new Date(str)).optional(),
+});
 
 // All invoice routes require authentication
 router.use(authenticateToken);

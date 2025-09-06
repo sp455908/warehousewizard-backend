@@ -2,9 +2,20 @@ import { Router } from "express";
 import { deliveryController } from "../controllers/deliveryController";
 import { authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
-import { insertDeliveryRequestSchema } from "../../shared/schema";
+import { z } from "zod";
 
 const router = Router();
+
+const insertDeliveryRequestSchema = z.object({
+  bookingId: z.string(),
+  customerId: z.string(),
+  deliveryAddress: z.string().min(1),
+  preferredDate: z.string().transform(str => new Date(str)),
+  urgency: z.enum(["standard", "express", "urgent"]).default("standard"),
+  status: z.enum(["requested", "scheduled", "in_transit", "delivered"]).default("requested"),
+  assignedDriver: z.string().optional(),
+  trackingNumber: z.string().optional(),
+});
 
 // All delivery routes require authentication
 router.use(authenticateToken);

@@ -2,9 +2,20 @@ import { Router } from "express";
 import { bookingController } from "../controllers/bookingController";
 import { authenticateToken, authorizeRoles } from "../middleware/auth";
 import { validateRequest } from "../middleware/validation";
-import { insertBookingSchema } from "../../shared/schema";
+import { z } from "zod";
 
 const router = Router();
+
+const insertBookingSchema = z.object({
+  quoteId: z.string(),
+  customerId: z.string(),
+  warehouseId: z.string(),
+  status: z.enum(["pending", "confirmed", "active", "completed", "cancelled"]).default("pending"),
+  startDate: z.string().transform(str => new Date(str)),
+  endDate: z.string().transform(str => new Date(str)),
+  totalAmount: z.number().positive(),
+  approvedBy: z.string().optional(),
+});
 
 // All booking routes require authentication
 router.use(authenticateToken);

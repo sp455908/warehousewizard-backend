@@ -1,30 +1,36 @@
 import { Request, Response } from "express";
-import { DeliveryRequestModel, type InsertDeliveryRequest } from "../../shared/schema";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { notificationService } from "../services/notificationService";
 import crypto from "crypto";
+import { prisma } from "../config/prisma";
 
 export class DeliveryController {
   async createDeliveryRequest(req: AuthenticatedRequest, res: Response) {
     try {
-      const deliveryData: InsertDeliveryRequest = {
+      const deliveryData = {
         ...req.body,
-        customerId: req.user!._id.toString(),
-      };
+        customerId: req.user?.id as string,
+      } as any;
 
       // Generate tracking number
       const trackingNumber = this.generateTrackingNumber();
       
-      const delivery = new DeliveryRequestModel({
-        ...deliveryData,
-        trackingNumber,
+      const delivery = await prisma.deliveryRequest.create({
+        data: {
+          bookingId: (deliveryData as any).bookingId,
+          customerId: deliveryData.customerId,
+          deliveryAddress: deliveryData.deliveryAddress,
+          preferredDate: new Date(deliveryData.preferredDate as any),
+          urgency: (deliveryData as any).urgency || 'standard',
+          status: (deliveryData as any).status || 'requested',
+          assignedDriver: (deliveryData as any).assignedDriver || null,
+          trackingNumber,
+        }
       });
-      
-      await delivery.save();
 
       // Send confirmation notification
       await notificationService.sendEmail({
-        to: req.user!.email,
+        to: (req.user as any).email,
         subject: "Delivery Request Created - Warehouse Wizard",
         html: `
           <h2>Delivery Request Created</h2>
@@ -44,28 +50,31 @@ export class DeliveryController {
 
   async getDeliveryRequests(req: AuthenticatedRequest, res: Response) {
     try {
-      const user = req.user!;
+      const user = req.user! as any;
       const { status } = req.query;
       
       let filter: any = {};
       
       if (user.role === "customer") {
-        filter.customerId = user._id;
+        filter.customerId = user.id || user._id?.toString();
       }
       
       if (status) {
-        filter.status = status;
+        filter.status = status as string;
       } else {
         // Default filter based on role
         if (user.role === "supervisor") {
           filter.status = "requested";
         }
       }
-
-      const deliveries = await DeliveryRequestModel.find(filter)
-        .populate('customerId', 'firstName lastName email company')
-        .populate('bookingId', 'warehouseId')
-        .sort({ createdAt: -1 });
+      const deliveries = await prisma.deliveryRequest.findMany({
+        where: filter,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          booking: { select: { id: true, warehouseId: true } }
+        }
+      });
 
       res.json(deliveries);
       return;
@@ -77,18 +86,21 @@ export class DeliveryController {
   async getDeliveryRequestById(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      
-      const delivery = await DeliveryRequestModel.findById(id)
-        .populate('customerId', 'firstName lastName email company mobile')
-        .populate('bookingId', 'warehouseId customerId');
+      const delivery = await prisma.deliveryRequest.findUnique({
+        where: { id },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, mobile: true, id: true } },
+          booking: { select: { id: true, warehouseId: true, customerId: true } }
+        }
+      });
 
       if (!delivery) {
         return res.status(404).json({ message: "Delivery request not found" });
       }
 
       // Check permissions
-      const user = req.user!;
-      if (user.role === "customer" && delivery.customerId._id.toString() !== user._id.toString()) {
+      const user = req.user! as any;
+      if (user.role === "customer" && (delivery as any).customerId !== (user.id || user._id?.toString())) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -103,13 +115,14 @@ export class DeliveryController {
     try {
       const { id } = req.params;
       const updateData = req.body;
-
-      const delivery = await DeliveryRequestModel.findByIdAndUpdate(
-        id,
-        { ...updateData, updatedAt: new Date() },
-        { new: true }
-      ).populate('customerId', 'firstName lastName email')
-       .populate('bookingId');
+      const delivery = await prisma.deliveryRequest.update({
+        where: { id },
+        data: { ...updateData, updatedAt: new Date() as any },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, id: true } },
+          booking: true
+        }
+      });
 
       if (!delivery) {
         return res.status(404).json({ message: "Delivery request not found" });
@@ -125,17 +138,12 @@ export class DeliveryController {
   async scheduleDelivery(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { scheduledDate, assignedDriver } = req.body;
-
-      const delivery = await DeliveryRequestModel.findByIdAndUpdate(
-        id,
-        { 
-          status: "scheduled",
-          assignedDriver,
-          updatedAt: new Date()
-        },
-        { new: true }
-      ).populate('customerId', 'firstName lastName email');
+      const { scheduledDate, assignedDriver } = req.body as any;
+      const delivery = await prisma.deliveryRequest.update({
+        where: { id },
+        data: { status: "scheduled", assignedDriver, updatedAt: new Date() as any },
+        include: { customer: { select: { firstName: true, lastName: true, email: true, id: true } } }
+      });
 
       if (!delivery) {
         return res.status(404).json({ message: "Delivery request not found" });
@@ -143,7 +151,7 @@ export class DeliveryController {
 
       // Send notification
       await notificationService.sendEmail({
-        to: (delivery.customerId as any).email,
+        to: (delivery as any).customer.email,
         subject: "Delivery Scheduled - Warehouse Wizard",
         html: `
           <h2>Delivery Scheduled</h2>
@@ -164,16 +172,8 @@ export class DeliveryController {
   async assignDriver(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { assignedDriver } = req.body;
-
-      const delivery = await DeliveryRequestModel.findByIdAndUpdate(
-        id,
-        { 
-          assignedDriver,
-          updatedAt: new Date()
-        },
-        { new: true }
-      );
+      const { assignedDriver } = req.body as any;
+      const delivery = await prisma.deliveryRequest.update({ where: { id }, data: { assignedDriver, updatedAt: new Date() as any } });
 
       if (!delivery) {
         return res.status(404).json({ message: "Delivery request not found" });
@@ -189,15 +189,11 @@ export class DeliveryController {
   async dispatchDelivery(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-
-      const delivery = await DeliveryRequestModel.findByIdAndUpdate(
-        id,
-        { 
-          status: "in_transit",
-          updatedAt: new Date()
-        },
-        { new: true }
-      ).populate('customerId', 'firstName lastName email');
+      const delivery = await prisma.deliveryRequest.update({
+        where: { id },
+        data: { status: "in_transit", updatedAt: new Date() as any },
+        include: { customer: { select: { firstName: true, lastName: true, email: true, id: true } } }
+      });
 
       if (!delivery) {
         return res.status(404).json({ message: "Delivery request not found" });
@@ -205,8 +201,8 @@ export class DeliveryController {
 
       // Send notification
       await notificationService.sendDeliveryNotification(
-        (delivery.customerId as any).email,
-        delivery.trackingNumber!
+        (delivery as any).customer.email,
+        (delivery as any).trackingNumber!
       );
 
       res.json(delivery);
@@ -219,16 +215,12 @@ export class DeliveryController {
   async completeDelivery(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { deliveryNotes } = req.body;
-
-      const delivery = await DeliveryRequestModel.findByIdAndUpdate(
-        id,
-        { 
-          status: "delivered",
-          updatedAt: new Date()
-        },
-        { new: true }
-      ).populate('customerId', 'firstName lastName email');
+      const { deliveryNotes } = req.body as any;
+      const delivery = await prisma.deliveryRequest.update({
+        where: { id },
+        data: { status: "delivered", updatedAt: new Date() as any },
+        include: { customer: { select: { firstName: true, lastName: true, email: true, id: true } } }
+      });
 
       if (!delivery) {
         return res.status(404).json({ message: "Delivery request not found" });
@@ -236,7 +228,7 @@ export class DeliveryController {
 
       // Send completion notification
       await notificationService.sendEmail({
-        to: (delivery.customerId as any).email,
+        to: (delivery as any).customer.email,
         subject: "Delivery Completed - Warehouse Wizard",
         html: `
           <h2>Delivery Completed</h2>
@@ -258,10 +250,13 @@ export class DeliveryController {
   async trackDelivery(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      
-      const delivery = await DeliveryRequestModel.findById(id)
-        .populate('customerId', 'firstName lastName')
-        .populate('bookingId', 'warehouseId');
+      const delivery = await prisma.deliveryRequest.findUnique({
+        where: { id },
+        include: {
+          customer: { select: { firstName: true, lastName: true, id: true } },
+          booking: { select: { id: true, warehouseId: true } }
+        }
+      });
 
       if (!delivery) {
         return res.status(404).json({ message: "Delivery request not found" });
@@ -269,14 +264,14 @@ export class DeliveryController {
 
       // Return tracking information
       const trackingInfo = {
-        trackingNumber: delivery.trackingNumber,
-        status: delivery.status,
-        deliveryAddress: delivery.deliveryAddress,
-        preferredDate: delivery.preferredDate,
-        assignedDriver: delivery.assignedDriver,
-        urgency: delivery.urgency,
-        createdAt: delivery.createdAt,
-        updatedAt: delivery.updatedAt,
+        trackingNumber: (delivery as any).trackingNumber,
+        status: (delivery as any).status,
+        deliveryAddress: (delivery as any).deliveryAddress,
+        preferredDate: (delivery as any).preferredDate,
+        assignedDriver: (delivery as any).assignedDriver,
+        urgency: (delivery as any).urgency,
+        createdAt: (delivery as any).createdAt,
+        updatedAt: (delivery as any).updatedAt,
       };
 
       res.json(trackingInfo);
@@ -289,10 +284,14 @@ export class DeliveryController {
   // Status-specific getters
   async getRequestedDeliveries(req: AuthenticatedRequest, res: Response) {
     try {
-      const deliveries = await DeliveryRequestModel.find({ status: "requested" })
-        .populate('customerId', 'firstName lastName email company')
-        .populate('bookingId', 'warehouseId')
-        .sort({ createdAt: -1 });
+      const deliveries = await prisma.deliveryRequest.findMany({
+        where: { status: "requested" },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          booking: { select: { id: true, warehouseId: true } }
+        }
+      });
 
       res.json(deliveries);
       return;
@@ -303,9 +302,11 @@ export class DeliveryController {
 
   async getScheduledDeliveries(req: AuthenticatedRequest, res: Response) {
     try {
-      const deliveries = await DeliveryRequestModel.find({ status: "scheduled" })
-        .populate('customerId', 'firstName lastName email company')
-        .sort({ preferredDate: 1 });
+      const deliveries = await prisma.deliveryRequest.findMany({
+        where: { status: "scheduled" },
+        orderBy: { preferredDate: 'asc' },
+        include: { customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } } }
+      });
 
       res.json(deliveries);
       return;
@@ -316,9 +317,11 @@ export class DeliveryController {
 
   async getInTransitDeliveries(req: AuthenticatedRequest, res: Response) {
     try {
-      const deliveries = await DeliveryRequestModel.find({ status: "in_transit" })
-        .populate('customerId', 'firstName lastName email company')
-        .sort({ updatedAt: -1 });
+      const deliveries = await prisma.deliveryRequest.findMany({
+        where: { status: "in_transit" },
+        orderBy: { updatedAt: 'desc' },
+        include: { customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } } }
+      });
 
       res.json(deliveries);
       return;
@@ -329,16 +332,14 @@ export class DeliveryController {
 
   async getDeliveredDeliveries(req: AuthenticatedRequest, res: Response) {
     try {
-      const user = req.user!;
-      let filter: any = { status: "delivered" };
-
-      if (user.role === "customer") {
-        filter.customerId = user._id;
-      }
-
-      const deliveries = await DeliveryRequestModel.find(filter)
-        .populate('customerId', 'firstName lastName email company')
-        .sort({ updatedAt: -1 });
+      const user = req.user! as any;
+      let where: any = { status: "delivered" };
+      if (user.role === "customer") where.customerId = user.id || user._id?.toString();
+      const deliveries = await prisma.deliveryRequest.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        include: { customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } } }
+      });
 
       res.json(deliveries);
       return;
