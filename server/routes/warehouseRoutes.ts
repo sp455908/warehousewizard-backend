@@ -19,6 +19,20 @@ const insertWarehouseSchema = z.object({
   isActive: z.boolean().default(true),
 });
 
+const updateWarehouseSchema = z.object({
+  name: z.string().min(1).optional(),
+  location: z.string().min(1).optional(),
+  city: z.string().min(1).optional(),
+  state: z.string().min(1).optional(),
+  storageType: z.enum(["cold_storage", "dry_storage", "hazmat", "climate_controlled"]).optional(),
+  totalSpace: z.number().positive().optional(),
+  availableSpace: z.number().positive().optional(),
+  pricePerSqFt: z.number().positive().optional(),
+  features: z.any().optional(),
+  isActive: z.boolean().optional(),
+  imageUrl: z.string().optional(),
+});
+
 // Public routes
 router.get("/", warehouseController.getAllWarehouses);
 router.get("/search", warehouseController.searchWarehouses);
@@ -44,6 +58,13 @@ router.post(
 router.put(
   "/:id",
   authorizeRoles("admin", "warehouse", "supervisor"),
+  warehouseController.updateWarehouse
+);
+
+router.patch(
+  "/:id",
+  authorizeRoles("admin", "warehouse", "supervisor"),
+  validateRequest(updateWarehouseSchema),
   warehouseController.updateWarehouse
 );
 

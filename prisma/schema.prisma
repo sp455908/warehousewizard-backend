@@ -130,6 +130,7 @@ model Warehouse {
   availableSpace  Int
   pricePerSqFt    Float
   features        Json?
+  imageUrl        String?
   isActive        Boolean      @default(true)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
