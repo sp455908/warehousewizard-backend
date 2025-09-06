@@ -1,4 +1,3 @@
-// Prisma schema aligned with Postgres production models
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,7 +7,179 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Enums
+model User {
+  id               String                @id @default(uuid())
+  email            String                @unique
+  passwordHash     String
+  firstName        String
+  lastName         String
+  mobile           String?
+  company          String?
+  role             UserRole              @default(customer)
+  isActive         Boolean               @default(true)
+  isEmailVerified  Boolean               @default(false)
+  isMobileVerified Boolean               @default(false)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  bookingsApproved Booking[]             @relation("BookingApprovedBy")
+  bookings         Booking[]             @relation("UserBookings")
+  cargoApproved    CargoDispatchDetail[] @relation("CargoApprovedBy")
+  deliveryRequests DeliveryRequest[]     @relation("DeliveryCustomer")
+  formSubmissions  FormSubmission[]      @relation("FormCustomer")
+  invoices         Invoice[]             @relation("InvoiceCustomer")
+  otpVerifications OtpVerification[]     @relation("UserOtp")
+  assignedQuotes   Quote[]               @relation("AssignedQuotes")
+  quotes           Quote[]               @relation("UserQuotes")
+}
+
+model OtpVerification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  code      String
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation("UserOtp", fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Warehouse {
+  id              String           @id @default(uuid())
+  name            String
+  location        String
+  city            String
+  state           String
+  storageType     StorageType
+  totalSpace      Int
+  availableSpace  Int
+  pricePerSqFt    Float
+  features        Json?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  imageUrl        String?
+  bookings        Booking[]
+  formSubmissions FormSubmission[] @relation("FormWarehouse")
+  quotes          Quote[]
+}
+
+model Quote {
+  id                  String           @id @default(uuid())
+  customerId          String
+  storageType         String
+  requiredSpace       Int
+  preferredLocation   String
+  duration            String
+  specialRequirements String?
+  status              QuoteStatus      @default(pending)
+  assignedTo          String?
+  finalPrice          Float?
+  warehouseId         String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  bookings            Booking[]
+  formSubmissions     FormSubmission[] @relation("FormQuote")
+  assignedToUser      User?            @relation("AssignedQuotes", fields: [assignedTo], references: [id])
+  customer            User             @relation("UserQuotes", fields: [customerId], references: [id], onDelete: Cascade)
+  warehouse           Warehouse?       @relation(fields: [warehouseId], references: [id])
+}
+
+model Booking {
+  id           String                @id @default(uuid())
+  quoteId      String
+  customerId   String
+  warehouseId  String
+  status       BookingStatus         @default(pending)
+  startDate    DateTime
+  endDate      DateTime
+  totalAmount  Float
+  approvedById String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  approvedBy   User?                 @relation("BookingApprovedBy", fields: [approvedById], references: [id])
+  customer     User                  @relation("UserBookings", fields: [customerId], references: [id], onDelete: Cascade)
+  quote        Quote                 @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  warehouse    Warehouse             @relation(fields: [warehouseId], references: [id])
+  cargoItems   CargoDispatchDetail[]
+  deliveries   DeliveryRequest[]
+  invoices     Invoice[]
+}
+
+model CargoDispatchDetail {
+  id              String      @id @default(uuid())
+  bookingId       String
+  itemDescription String
+  quantity        Int
+  weight          Float?
+  dimensions      String?
+  specialHandling String?
+  status          CargoStatus @default(submitted)
+  approvedById    String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  approvedBy      User?       @relation("CargoApprovedBy", fields: [approvedById], references: [id])
+  booking         Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+model DeliveryRequest {
+  id              String          @id @default(uuid())
+  bookingId       String
+  customerId      String
+  deliveryAddress String
+  preferredDate   DateTime
+  urgency         DeliveryUrgency @default(standard)
+  status          DeliveryStatus  @default(requested)
+  assignedDriver  String?
+  trackingNumber  String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  booking         Booking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customer        User            @relation("DeliveryCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  bookingId     String
+  customerId    String
+  invoiceNumber String        @unique
+  amount        Float
+  status        InvoiceStatus @default(draft)
+  dueDate       DateTime
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  booking       Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customer      User          @relation("InvoiceCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model FormSubmission {
+  id          String     @id @default(uuid())
+  customerId  String?
+  warehouseId String?
+  quoteId     String?
+  type        FormType
+  data        Json
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  customer    User?      @relation("FormCustomer", fields: [customerId], references: [id])
+  quote       Quote?     @relation("FormQuote", fields: [quoteId], references: [id])
+  warehouse   Warehouse? @relation("FormWarehouse", fields: [warehouseId], references: [id])
+}
+
+model WorkflowEvent {
+  id             String   @id @default(uuid())
+  entityType     String
+  entityId       String
+  fromStage      String?
+  toStage        String
+  action         String
+  routedToRole   String?
+  routedToUserId String?
+  actorUserId    String?
+  payload        Json?
+  createdAt      DateTime @default(now())
+}
+
 enum UserRole {
   customer
   purchase_support
@@ -20,13 +191,10 @@ enum UserRole {
 }
 
 enum StorageType {
-  domestic_dry
-  domestic_reefer
-  bonded_dry
-  bonded_reefer
-  cfs_import
-  cfs_export_dry
-  cfs_export_reefer
+  cold_storage
+  dry_storage
+  hazmat
+  climate_controlled
 }
 
 enum QuoteStatus {
@@ -82,186 +250,3 @@ enum FormType {
   cfs_export_dry
   refer_domestic_warehouse
 }
-
-// Core models
-model User {
-  id               String      @id @default(uuid())
-  email            String      @unique
-  passwordHash     String
-  firstName        String
-  lastName         String
-  mobile           String?
-  company          String?
-  role             UserRole    @default(customer)
-  isActive         Boolean     @default(true)
-  isEmailVerified  Boolean     @default(false)
-  isMobileVerified Boolean     @default(false)
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-
-  // relations
-  quotes           Quote[]             @relation("UserQuotes")
-  bookings         Booking[]           @relation("UserBookings")
-  assignedQuotes   Quote[]             @relation("AssignedQuotes")
-  otpVerifications OtpVerification[]   @relation("UserOtp")
-  bookingsApproved Booking[]           @relation("BookingApprovedBy")
-  cargoApproved    CargoDispatchDetail[] @relation("CargoApprovedBy")
-  deliveryRequests DeliveryRequest[]    @relation("DeliveryCustomer")
-  invoices         Invoice[]            @relation("InvoiceCustomer")
-  formSubmissions  FormSubmission[]     @relation("FormCustomer")
-}
-
-model OtpVerification {
-  id         String   @id @default(uuid())
-  user       User     @relation("UserOtp", fields: [userId], references: [id], onDelete: Cascade)
-  userId     String
-  type       String
-  code       String
-  expiresAt  DateTime
-  isUsed     Boolean  @default(false)
-  createdAt  DateTime @default(now())
-}
-
-model Warehouse {
-  id              String       @id @default(uuid())
-  name            String
-  location        String
-  city            String
-  state           String
-  storageType     StorageType
-  totalSpace      Int
-  availableSpace  Int
-  pricePerSqFt    Float
-  features        Json?
-  imageUrl        String?
-  isActive        Boolean      @default(true)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-
-  // relations
-  quotes          Quote[]
-  bookings        Booking[]
-  formSubmissions FormSubmission[] @relation("FormWarehouse")
-}
-
-model Quote {
-  id                  String       @id @default(uuid())
-  customer            User         @relation("UserQuotes", fields: [customerId], references: [id], onDelete: Cascade)
-  customerId          String
-  storageType         String
-  requiredSpace       Int
-  preferredLocation   String
-  duration            String
-  specialRequirements String?
-  status              QuoteStatus  @default(pending)
-  assignedToUser      User?        @relation("AssignedQuotes", fields: [assignedTo], references: [id], onDelete: SetNull)
-  assignedTo          String?
-  finalPrice          Float?
-  warehouse           Warehouse?   @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
-  warehouseId         String?
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-
-  // relations
-  bookings            Booking[]
-  formSubmissions     FormSubmission[] @relation("FormQuote")
-}
-
-model Booking {
-  id           String        @id @default(uuid())
-  quote        Quote         @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  quoteId      String
-  customer     User          @relation("UserBookings", fields: [customerId], references: [id], onDelete: Cascade)
-  customerId   String
-  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id])
-  warehouseId  String
-  status       BookingStatus @default(pending)
-  startDate    DateTime
-  endDate      DateTime
-  totalAmount  Float
-  approvedBy   User?         @relation("BookingApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
-  approvedById String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-
-  // relations
-  cargoItems   CargoDispatchDetail[]
-  deliveries   DeliveryRequest[]
-  invoices     Invoice[]
-}
-
-model CargoDispatchDetail {
-  id               String      @id @default(uuid())
-  booking          Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  bookingId        String
-  itemDescription  String
-  quantity         Int
-  weight           Float?
-  dimensions       String?
-  specialHandling  String?
-  status           CargoStatus @default(submitted)
-  approvedBy       User?       @relation("CargoApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
-  approvedById     String?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-}
-
-model DeliveryRequest {
-  id               String         @id @default(uuid())
-  booking          Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  bookingId        String
-  customer         User           @relation("DeliveryCustomer", fields: [customerId], references: [id], onDelete: Cascade)
-  customerId       String
-  deliveryAddress  String
-  preferredDate    DateTime
-  urgency          DeliveryUrgency @default(standard)
-  status           DeliveryStatus   @default(requested)
-  assignedDriver   String?
-  trackingNumber   String?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-}
-
-model Invoice {
-  id             String        @id @default(uuid())
-  booking        Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  bookingId      String
-  customer       User          @relation("InvoiceCustomer", fields: [customerId], references: [id], onDelete: Cascade)
-  customerId     String
-  invoiceNumber  String        @unique
-  amount         Float
-  status         InvoiceStatus @default(draft)
-  dueDate        DateTime
-  paidAt         DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-}
-
-model FormSubmission {
-  id           String    @id @default(uuid())
-  customer     User?     @relation("FormCustomer", fields: [customerId], references: [id], onDelete: SetNull)
-  customerId   String?
-  warehouse    Warehouse? @relation("FormWarehouse", fields: [warehouseId], references: [id], onDelete: SetNull)
-  warehouseId  String?
-  quote        Quote?    @relation("FormQuote", fields: [quoteId], references: [id], onDelete: SetNull)
-  quoteId      String?
-  type         FormType
-  data         Json
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-}
-
-model WorkflowEvent {
-  id             String   @id @default(uuid())
-  entityType     String
-  entityId       String
-  fromStage      String?
-  toStage        String
-  action         String
-  routedToRole   String?
-  routedToUserId String?
-  actorUserId    String?
-  payload        Json?
-  createdAt      DateTime @default(now())
-}
-
