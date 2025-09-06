@@ -58,6 +58,7 @@ export class WarehouseService {
       availableSpace: warehouseData.availableSpace,
       pricePerSqFt: warehouseData.pricePerSqFt,
       features: warehouseData.features as any,
+      imageUrl: warehouseData.imageUrl || null,
       isActive: warehouseData.isActive ?? true,
     } });
     

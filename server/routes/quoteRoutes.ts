@@ -20,6 +20,13 @@ const insertQuoteSchema = z.object({
   warehouseId: z.string().optional(),
 });
 
+// Schema for specialized forms (domestic dry, bonded, CFS, etc.)
+const specializedQuoteSchema = z.object({
+  customerId: z.string(),
+  formType: z.string().min(1),
+  warehouseId: z.string().optional(),
+}).passthrough();
+
 // All quote routes require authentication
 router.use(authenticateToken);
 
@@ -39,7 +46,16 @@ router.post(
     }
     next();
   },
-  validateRequest(insertQuoteSchema),
+  // Use different validation based on form type
+  (req: AuthenticatedRequest, res: Response, next) => {
+    if (req.body.formType) {
+      // Specialized form - use flexible schema
+      return validateRequest(specializedQuoteSchema)(req, res, next);
+    } else {
+      // Basic form - use strict schema
+      return validateRequest(insertQuoteSchema)(req, res, next);
+    }
+  },
   quoteController.createQuote
 );
 

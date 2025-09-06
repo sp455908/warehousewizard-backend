@@ -24,11 +24,37 @@ const quoteSearchSchema = z.object({
 });
 
 export class QuoteController {
-  async createQuote(req: AuthenticatedRequest, res: Response) {
+  createQuote = async (req: AuthenticatedRequest, res: Response) => {
     try {
+      const customerId = (req.user! as any).id;
+      
+      // Handle specialized forms differently
+      if (req.body.formType) {
+        // For specialized forms, store the entire form data as JSON
+        const quote = await prisma.quote.create({
+          data: {
+            customerId: customerId,
+            storageType: req.body.formType, // Use formType as storageType
+            requiredSpace: req.body.spaceRequired || req.body.requiredSpace || 0,
+            preferredLocation: req.body.origin || req.body.preferredLocation || "Not specified",
+            duration: req.body.storagePeriod ? `${req.body.storagePeriod} days` : "Not specified",
+            specialRequirements: JSON.stringify(req.body), // Store entire form data as JSON
+            status: "pending",
+            warehouseId: req.body.warehouseId || null,
+          },
+          include: {
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } }
+          }
+        });
+
+        res.status(201).json(quote);
+        return;
+      }
+      
+      // Handle basic forms (original logic)
       const quoteData = insertQuoteSchema.parse({
         ...req.body,
-        customerId: (req.user! as any).id || (req.user! as any)._id?.toString(),
+        customerId: customerId,
       });
       
       const quote = await prisma.quote.create({
@@ -56,34 +82,48 @@ export class QuoteController {
     }
   }
 
-  async getQuotes(req: AuthenticatedRequest, res: Response) {
+  getQuotes = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const user = req.user! as any;
+      console.log("[DEBUG] getQuotes - User:", user);
+      console.log("[DEBUG] getQuotes - User ID:", user.id);
+      console.log("[DEBUG] getQuotes - User Role:", user.role);
+      
       let quotes;
 
       if (user.role === "customer") {
-        quotes = await this.getQuotesByCustomer(user.id || user._id?.toString());
+        const customerId = user.id;
+        console.log("[DEBUG] getQuotes - Customer ID:", customerId);
+        if (!customerId) {
+          return res.status(400).json({ message: "Customer ID not found" });
+        }
+        quotes = await QuoteController.getQuotesByCustomer(customerId);
       } else if (user.role === "purchase_support") {
-        quotes = await this.getQuotesByStatus(QuoteStatus.pending);
+        quotes = await QuoteController.getQuotesByStatus(QuoteStatus.pending);
       } else if (user.role === "sales_support") {
-        quotes = await this.getQuotesByStatus(QuoteStatus.processing);
+        quotes = await QuoteController.getQuotesByStatus(QuoteStatus.processing);
       } else if (user.role === "warehouse") {
-        quotes = await this.getQuotesByAssignee(user.id || user._id?.toString());
+        quotes = await QuoteController.getQuotesByAssignee(user.id);
       } else {
         // Admin, supervisor can see all
         const searchParams = quoteSearchSchema.parse(req.query);
-        const result = await this.searchQuotes(searchParams);
+        const result = await QuoteController.searchQuotes(searchParams);
         return res.json(result);
       }
 
       res.json(quotes);
       return;
     } catch (error) {
-      return res.status(500).json({ message: "Failed to fetch quotes", error });
+      console.error("[DEBUG] getQuotes - Error:", error);
+      return res.status(500).json({ 
+        message: "Failed to fetch quotes", 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
-  async getQuoteById(req: AuthenticatedRequest, res: Response) {
+  getQuoteById = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const quote = await prisma.quote.findUnique({
@@ -101,7 +141,7 @@ export class QuoteController {
 
       // Check permissions
       const user = req.user! as any;
-      if (user.role === "customer" && quote.customerId !== (user.id || user._id?.toString())) {
+      if (user.role === "customer" && quote.customerId !== user.id) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -112,7 +152,7 @@ export class QuoteController {
     }
   }
 
-  async updateQuote(req: AuthenticatedRequest, res: Response) {
+  updateQuote = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const updateData = req.body;
@@ -138,7 +178,7 @@ export class QuoteController {
     }
   }
 
-  async assignQuote(req: AuthenticatedRequest, res: Response) {
+  assignQuote = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const { assignedTo } = req.body;
@@ -172,7 +212,7 @@ export class QuoteController {
     }
   }
 
-  async approveQuote(req: AuthenticatedRequest, res: Response) {
+  approveQuote = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const { finalPrice, warehouseId } = req.body;
@@ -207,7 +247,7 @@ export class QuoteController {
     }
   }
 
-  async rejectQuote(req: AuthenticatedRequest, res: Response) {
+  rejectQuote = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const { reason } = req.body;
@@ -235,10 +275,10 @@ export class QuoteController {
     }
   }
 
-  async getQuotesForRole(req: AuthenticatedRequest, res: Response) {
+  getQuotesForRole = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const user = req.user! as any;
-      const quotes = await this.getQuotesForRoleInternal(user.role, user.id || user._id?.toString());
+      const quotes = await QuoteController.getQuotesForRoleInternal(user.role, user.id);
       res.json(quotes);
       return;
     } catch (error) {
@@ -246,7 +286,7 @@ export class QuoteController {
     }
   }
 
-  async calculateQuotePrice(req: AuthenticatedRequest, res: Response) {
+  calculateQuotePrice = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       
@@ -275,9 +315,9 @@ export class QuoteController {
   }
 
   // Get quotes by status for different roles
-  async getPendingQuotes(req: AuthenticatedRequest, res: Response) {
+  getPendingQuotes = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const quotes = await this.getQuotesByStatus(QuoteStatus.pending);
+      const quotes = await QuoteController.getQuotesByStatus(QuoteStatus.pending);
       res.json(quotes);
       return;
     } catch (error) {
@@ -285,9 +325,9 @@ export class QuoteController {
     }
   }
 
-  async getProcessingQuotes(req: AuthenticatedRequest, res: Response) {
+  getProcessingQuotes = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const quotes = await this.getQuotesByStatus(QuoteStatus.processing);
+      const quotes = await QuoteController.getQuotesByStatus(QuoteStatus.processing);
       res.json(quotes);
       return;
     } catch (error) {
@@ -295,9 +335,9 @@ export class QuoteController {
     }
   }
 
-  async getQuotedQuotes(req: AuthenticatedRequest, res: Response) {
+  getQuotedQuotes = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const quotes = await this.getQuotesByStatus(QuoteStatus.quoted);
+      const quotes = await QuoteController.getQuotesByStatus(QuoteStatus.quoted);
       res.json(quotes);
       return;
     } catch (error) {
@@ -306,19 +346,27 @@ export class QuoteController {
   }
 
   // Helper methods for internal use
-  private async getQuotesByCustomer(customerId: string) {
-    return await prisma.quote.findMany({
-      where: { customerId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-        warehouse: { select: { name: true, location: true, city: true, state: true } },
-        assignedToUser: { select: { firstName: true, lastName: true, email: true } }
-      }
-    });
+  private static async getQuotesByCustomer(customerId: string) {
+    console.log("[DEBUG] getQuotesByCustomer - Customer ID:", customerId);
+    try {
+      const quotes = await prisma.quote.findMany({
+        where: { customerId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true } },
+          assignedToUser: { select: { firstName: true, lastName: true, email: true } }
+        }
+      });
+      console.log("[DEBUG] getQuotesByCustomer - Found quotes:", quotes.length);
+      return quotes;
+    } catch (error) {
+      console.error("[DEBUG] getQuotesByCustomer - Error:", error);
+      throw error;
+    }
   }
 
-  private async getQuotesByStatus(status: QuoteStatus) {
+  private static async getQuotesByStatus(status: QuoteStatus) {
     return await prisma.quote.findMany({
       where: { status },
       orderBy: { createdAt: 'desc' },
@@ -330,7 +378,7 @@ export class QuoteController {
     });
   }
 
-  private async getQuotesByAssignee(assignedTo: string) {
+  private static async getQuotesByAssignee(assignedTo: string) {
     return await prisma.quote.findMany({
       where: { assignedTo },
       orderBy: { createdAt: 'desc' },
@@ -342,16 +390,16 @@ export class QuoteController {
     });
   }
 
-  private async getQuotesForRoleInternal(role: string, userId: string) {
+  private static async getQuotesForRoleInternal(role: string, userId: string) {
     switch (role) {
       case "customer":
-        return await this.getQuotesByCustomer(userId);
+        return await QuoteController.getQuotesByCustomer(userId);
       case "purchase_support":
-        return await this.getQuotesByStatus(QuoteStatus.pending);
+        return await QuoteController.getQuotesByStatus(QuoteStatus.pending);
       case "sales_support":
-        return await this.getQuotesByStatus(QuoteStatus.processing);
+        return await QuoteController.getQuotesByStatus(QuoteStatus.processing);
       case "warehouse":
-        return await this.getQuotesByAssignee(userId);
+        return await QuoteController.getQuotesByAssignee(userId);
       default:
         return await prisma.quote.findMany({
           orderBy: { createdAt: 'desc' },
@@ -364,7 +412,7 @@ export class QuoteController {
     }
   }
 
-  private async searchQuotes(params: any) {
+  private static async searchQuotes(params: any) {
     const { status, storageType, page, limit, sortBy, sortOrder } = params;
     
     const where: any = {};
