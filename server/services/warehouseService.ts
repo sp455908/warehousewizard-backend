@@ -11,7 +11,7 @@ export interface WarehouseFilters {
 }
 
 export class WarehouseService {
-  async getAllWarehouses(filters?: WarehouseFilters) {
+  async getAllWarehouses(filters?: WarehouseFilters, excludePricing: boolean = true) {
     // Try to get from cache first
     const cached = await cacheService.getWarehouses(filters);
     if (cached) {
@@ -27,7 +27,32 @@ export class WarehouseService {
       if (filters.maxPrice) where.pricePerSqFt = { lte: filters.maxPrice };
     }
 
-    const warehouses = await prisma.warehouse.findMany({ where, orderBy: { name: 'asc' } });
+    let warehouses;
+    if (excludePricing) {
+      // Exclude pricing for public access
+      warehouses = await prisma.warehouse.findMany({ 
+        where, 
+        orderBy: { name: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          location: true,
+          city: true,
+          state: true,
+          storageType: true,
+          totalSpace: true,
+          availableSpace: true,
+          // Exclude pricePerSqFt for public access
+          features: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+          imageUrl: true
+        }
+      });
+    } else {
+      warehouses = await prisma.warehouse.findMany({ where, orderBy: { name: 'asc' } });
+    }
     
     // Cache the results
     await cacheService.setWarehouses(warehouses, filters);

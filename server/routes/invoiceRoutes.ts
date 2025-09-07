@@ -42,7 +42,17 @@ router.post("/:id/mark-overdue", authorizeRoles("accounts", "admin"), invoiceCon
 // Customer payment
 router.post("/:id/pay", authorizeRoles("customer"), invoiceController.payInvoice);
 
+// Customer invoice request
+router.post("/request", authorizeRoles("customer"), invoiceController.requestInvoice);
+
+// Customer payment detail submission
+router.post("/:id/submit-payment", authorizeRoles("customer"), invoiceController.submitPaymentDetails);
+
 // Generate invoice PDF
 router.get("/:id/pdf", invoiceController.generateInvoicePDF);
+
+// Warehouse: Accept/Reject invoice requests (A29-A30)
+router.post("/:id/accept", authorizeRoles("warehouse", "admin"), invoiceController.acceptInvoiceRequest);
+router.post("/:id/reject", authorizeRoles("warehouse", "admin"), invoiceController.rejectInvoiceRequest);
 
 export default router;

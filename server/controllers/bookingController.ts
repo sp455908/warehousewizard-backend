@@ -57,21 +57,132 @@ export class BookingController {
       } else if (user.role === "supervisor") {
         where.status = "pending";
       }
-      const bookings = await prisma.booking.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
-          quote: true,
-          approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } }
-        }
-      });
+      
+      let bookings;
+      if (user.role === "customer") {
+        // Exclude pricing for customers
+        bookings = await prisma.booking.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            quoteId: true,
+            customerId: true,
+            warehouseId: true,
+            status: true,
+            startDate: true,
+            endDate: true,
+            // Exclude totalAmount for customers
+            approvedById: true,
+            createdAt: true,
+            updatedAt: true,
+            customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+            warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
+            quote: {
+              select: {
+                id: true,
+                storageType: true,
+                requiredSpace: true,
+                preferredLocation: true,
+                duration: true,
+                specialRequirements: true,
+                status: true,
+                // Exclude finalPrice for customers
+                createdAt: true,
+                updatedAt: true
+              }
+            },
+            approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } }
+          }
+        });
+      } else {
+        // Include all fields for other roles
+        bookings = await prisma.booking.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+            warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
+            quote: true,
+            approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } }
+          }
+        });
+      }
 
       res.json(bookings);
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to fetch bookings", error });
+    }
+  }
+
+  async getBookingRequests(req: AuthenticatedRequest, res: Response) {
+    try {
+      // Get all quotes that need warehouse quotes (for purchase support)
+      const quotes = await prisma.quote.findMany({
+        where: {
+          status: "pending"
+        },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true, id: true } }
+        }
+      });
+
+      // Transform quotes to booking request format
+      const bookingRequests = quotes.map(quote => ({
+        id: quote.id,
+        bookingId: `2RB${quote.id.slice(-8).toUpperCase()}`,
+        bookingDate: quote.createdAt.toISOString().replace('T', ' ').slice(0, 19),
+        warehouseName: quote.warehouse?.name || "Not Assigned",
+        remark: quote.specialRequirements ? "Special requirements" : "okl",
+        status: quote.status,
+        customerName: quote.customer ? `${quote.customer.firstName} ${quote.customer.lastName}` : "Unknown",
+        customerEmail: quote.customer?.email || "Unknown",
+        storageType: quote.storageType,
+        requiredSpace: quote.requiredSpace,
+        preferredLocation: quote.preferredLocation,
+        duration: quote.duration,
+        specialRequirements: quote.specialRequirements
+      }));
+
+      res.json(bookingRequests);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to fetch booking requests", error });
+    }
+  }
+
+  async processQuoteRequest(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { remark } = req.body;
+
+      // Update the quote with the remark and change status
+      const updatedQuote = await prisma.quote.update({
+        where: { id },
+        data: {
+          specialRequirements: remark,
+          status: "processing"
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true, id: true } }
+        }
+      });
+
+      // Send notification to warehouse
+      await notificationService.sendQuoteRequestNotification(
+        updatedQuote.customer?.email || "",
+        updatedQuote.id,
+        remark
+      );
+
+      res.json({ message: "Quote request processed successfully", quote: updatedQuote });
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to process quote request", error });
     }
   }
 
@@ -140,22 +251,34 @@ export class BookingController {
           approvedById: supervisorId,
           updatedAt: new Date() as any
         },
-        include: { customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } } }
+        include: { 
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          quote: true
+        }
       });
 
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
       }
 
-      // Update warehouse available space
-      // You'll need to get the required space from the quote or booking
-      // await warehouseService.updateAvailableSpace(booking.warehouseId, -requiredSpace);
+      // Update quote status to booking confirmed
+      await prisma.quote.update({
+        where: { id: (booking as any).quoteId },
+        data: { status: "booking_confirmed" }
+      });
 
       // Send confirmation notification
-      await notificationService.sendBookingConfirmationNotification(
-        (booking as any).customer.email,
-        booking.id
-      );
+      await notificationService.sendEmail({
+        to: (booking as any).customer.email,
+        subject: "Booking Confirmed - Warehouse Wizard",
+        html: `
+          <h2>Booking Confirmed</h2>
+          <p>Your booking has been confirmed by the supervisor.</p>
+          <p>Booking ID: ${booking.id}</p>
+          <p>Total Amount: $${booking.totalAmount}</p>
+          <p>You can now proceed with cargo dispatch details.</p>
+        `,
+      });
 
       res.json(booking);
       return;
@@ -219,6 +342,115 @@ export class BookingController {
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to approve booking", error });
+    }
+  }
+
+  // Supervisor booking approval/rejection
+  async approveBookingBySupervisor(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const supervisorId = (req.user as any)?.id || (req.user as any)?._id?.toString();
+      
+      // Only supervisor can approve bookings
+      if ((req.user! as any).role !== "supervisor") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      
+      const booking = await prisma.booking.update({
+        where: { id },
+        data: {
+          status: "confirmed",
+          approvedById: supervisorId,
+          updatedAt: new Date() as any
+        },
+        include: { 
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          quote: true,
+          warehouse: { select: { name: true, location: true, city: true, state: true } }
+        }
+      });
+
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      // Update quote status to booking confirmed
+      await prisma.quote.update({
+        where: { id: (booking as any).quoteId },
+        data: { status: "booking_confirmed" }
+      });
+
+      // Send confirmation notification
+      await notificationService.sendEmail({
+        to: (booking as any).customer.email,
+        subject: "Booking Approved - Warehouse Wizard",
+        html: `
+          <h2>Booking Approved</h2>
+          <p>Your booking has been approved by the supervisor.</p>
+          <p>Booking ID: ${booking.id}</p>
+          <p>Warehouse: ${(booking.warehouse as any).name}</p>
+          <p>You can now proceed with cargo dispatch details.</p>
+        `,
+      });
+
+      res.json(booking);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to approve booking", error });
+    }
+  }
+
+  async rejectBookingBySupervisor(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      
+      // Only supervisor can reject bookings
+      if ((req.user! as any).role !== "supervisor") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      
+      const booking = await prisma.booking.update({
+        where: { id },
+        data: { 
+          status: "cancelled", 
+          updatedAt: new Date() as any 
+        },
+        include: { 
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true } }
+        }
+      });
+
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      // Update quote status to rejected
+      await prisma.quote.update({
+        where: { id: (booking as any).quoteId },
+        data: { 
+          status: "rejected",
+          specialRequirements: reason ? `Booking rejected: ${reason}` : "Booking rejected by supervisor"
+        }
+      });
+
+      // Send rejection notification
+      await notificationService.sendEmail({
+        to: (booking as any).customer.email,
+        subject: "Booking Rejected - Warehouse Wizard",
+        html: `
+          <h2>Booking Rejected</h2>
+          <p>Your booking (ID: ${booking.id}) has been rejected by the supervisor.</p>
+          ${reason ? `<p>Reason: ${reason}</p>` : ''}
+          <p>If you have any questions, please contact our support team.</p>
+        `,
+      });
+
+      res.json(booking);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to reject booking", error });
     }
   }
 
@@ -320,6 +552,115 @@ export class BookingController {
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to fetch completed bookings", error });
+    }
+  }
+
+  // Supervisor booking approval/rejection
+  async approveBookingBySupervisor(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const supervisorId = (req.user as any)?.id || (req.user as any)?._id?.toString();
+      
+      // Only supervisor can approve bookings
+      if ((req.user! as any).role !== "supervisor") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      
+      const booking = await prisma.booking.update({
+        where: { id },
+        data: {
+          status: "confirmed",
+          approvedById: supervisorId,
+          updatedAt: new Date() as any
+        },
+        include: { 
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          quote: true,
+          warehouse: { select: { name: true, location: true, city: true, state: true } }
+        }
+      });
+
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      // Update quote status to booking confirmed
+      await prisma.quote.update({
+        where: { id: (booking as any).quoteId },
+        data: { status: "booking_confirmed" }
+      });
+
+      // Send confirmation notification
+      await notificationService.sendEmail({
+        to: (booking.customer as any).email,
+        subject: "Booking Approved - Warehouse Wizard",
+        html: `
+          <h2>Booking Approved</h2>
+          <p>Your booking has been approved by the supervisor.</p>
+          <p>Booking ID: ${booking.id}</p>
+          <p>Warehouse: ${(booking.warehouse as any).name}</p>
+          <p>You can now proceed with cargo dispatch details.</p>
+        `,
+      });
+
+      res.json(booking);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to approve booking", error });
+    }
+  }
+
+  async rejectBookingBySupervisor(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      
+      // Only supervisor can reject bookings
+      if ((req.user! as any).role !== "supervisor") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      
+      const booking = await prisma.booking.update({
+        where: { id },
+        data: { 
+          status: "cancelled", 
+          updatedAt: new Date() as any 
+        },
+        include: { 
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true } }
+        }
+      });
+
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      // Update quote status to rejected
+      await prisma.quote.update({
+        where: { id: (booking as any).quoteId },
+        data: { 
+          status: "rejected",
+          specialRequirements: reason ? `Booking rejected: ${reason}` : "Booking rejected by supervisor"
+        }
+      });
+
+      // Send rejection notification
+      await notificationService.sendEmail({
+        to: (booking.customer as any).email,
+        subject: "Booking Rejected - Warehouse Wizard",
+        html: `
+          <h2>Booking Rejected</h2>
+          <p>Your booking (ID: ${booking.id}) has been rejected by the supervisor.</p>
+          ${reason ? `<p>Reason: ${reason}</p>` : ''}
+          <p>If you have any questions, please contact our support team.</p>
+        `,
+      });
+
+      res.json(booking);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to reject booking", error });
     }
   }
 }

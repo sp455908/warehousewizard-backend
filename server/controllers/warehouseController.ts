@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { warehouseService } from "../services/warehouseService";
+import { prisma } from "../config/prisma";
 import { z } from "zod";
 
 const warehouseSearchSchema = z.object({
@@ -19,16 +20,16 @@ const warehouseSearchSchema = z.object({
 export class WarehouseController {
   async getAllWarehouses(req: Request, res: Response) {
     try {
-      const { city, state, storageType, minSpace, maxPrice } = req.query;
+      const { city, state, storageType, minSpace } = req.query;
       
       const filters: any = {};
       if (city) filters.city = city as string;
       if (state) filters.state = state as string;
       if (storageType) filters.storageType = storageType as string;
       if (minSpace) filters.minSpace = parseInt(minSpace as string);
-      if (maxPrice) filters.maxPrice = parseFloat(maxPrice as string);
+      // Remove maxPrice filter as pricing is not exposed to public
 
-      const warehouses = await warehouseService.getAllWarehouses(filters);
+      const warehouses = await warehouseService.getAllWarehouses(filters, true); // excludePricing = true
       res.json(warehouses);
       return;
     } catch (error) {
@@ -39,7 +40,25 @@ export class WarehouseController {
   async getWarehouseById(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const warehouse = await warehouseService.getWarehouseById(id);
+      const warehouse = await prisma.warehouse.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          name: true,
+          location: true,
+          city: true,
+          state: true,
+          storageType: true,
+          totalSpace: true,
+          availableSpace: true,
+          // Exclude pricePerSqFt for public access
+          features: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+          imageUrl: true
+        }
+      });
       
       if (!warehouse) {
         return res.status(404).json({ message: "Warehouse not found" });

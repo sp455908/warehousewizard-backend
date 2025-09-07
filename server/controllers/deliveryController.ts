@@ -348,6 +348,153 @@ export class DeliveryController {
     }
   }
 
+  // Supervisor: Approve/Reject delivery requests (A26-A27)
+  async approveDeliveryRequest(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { notes, deliveryAdvice } = req.body;
+      
+      // Only supervisor can approve delivery requests
+      if ((req.user! as any).role !== "supervisor") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      const deliveryRequest = await prisma.deliveryRequest.findUnique({
+        where: { id },
+        include: { 
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          booking: { 
+            include: { 
+              warehouse: { select: { name: true, location: true, city: true, state: true } }
+            }
+          }
+        }
+      });
+
+      if (!deliveryRequest) {
+        return res.status(404).json({ message: "Delivery request not found" });
+      }
+
+      // Update delivery request status
+      const updatedRequest = await prisma.deliveryRequest.update({
+        where: { id },
+        data: { 
+          status: "approved",
+          assignedDriver: (req.user! as any).id, // Assign supervisor as approver
+          specialRequirements: notes ? `${deliveryRequest.specialRequirements || ''}\nApproval Notes: ${notes}` : deliveryRequest.specialRequirements
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          booking: { 
+            include: { 
+              warehouse: { select: { name: true, location: true, city: true, state: true } }
+            }
+          }
+        }
+      });
+
+      // Create delivery advice if provided
+      if (deliveryAdvice) {
+        await prisma.deliveryAdvice.create({
+          data: {
+            deliveryRequestId: id,
+            bookingId: deliveryRequest.bookingId,
+            customerId: deliveryRequest.customerId,
+            warehouseId: deliveryRequest.booking?.warehouseId,
+            adviceDetails: deliveryAdvice,
+            status: "created",
+            createdBy: (req.user! as any).id
+          }
+        });
+      }
+
+      // Send notification to customer
+      await notificationService.sendEmail({
+        to: deliveryRequest.customer?.email || "",
+        subject: "Delivery Request Approved - Warehouse Wizard",
+        html: `
+          <h2>Delivery Request Approved</h2>
+          <p>Your delivery request has been approved and is being processed.</p>
+          <p>Tracking Number: <strong>${deliveryRequest.trackingNumber}</strong></p>
+          <p>Delivery Address: ${deliveryRequest.deliveryAddress}</p>
+          <p>Preferred Date: ${new Date(deliveryRequest.preferredDate).toLocaleDateString()}</p>
+          <p>Status: Approved and ready for dispatch</p>
+        `
+      });
+
+      // Send notification to warehouse
+      await notificationService.sendEmail({
+        to: "warehouse@warehousewizard.com", // This should be dynamic
+        subject: "Delivery Request Approved - Action Required",
+        html: `
+          <h2>Delivery Request Approved</h2>
+          <p>Customer: ${deliveryRequest.customer?.firstName} ${deliveryRequest.customer?.lastName}</p>
+          <p>Tracking Number: ${deliveryRequest.trackingNumber}</p>
+          <p>Warehouse: ${deliveryRequest.booking?.warehouse?.name}</p>
+          <p>Please prepare for delivery dispatch.</p>
+        `
+      });
+
+      res.json({ message: "Delivery request approved successfully", deliveryRequest: updatedRequest });
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to approve delivery request", error });
+    }
+  }
+
+  async rejectDeliveryRequest(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      
+      // Only supervisor can reject delivery requests
+      if ((req.user! as any).role !== "supervisor") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      const deliveryRequest = await prisma.deliveryRequest.findUnique({
+        where: { id },
+        include: { 
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } }
+        }
+      });
+
+      if (!deliveryRequest) {
+        return res.status(404).json({ message: "Delivery request not found" });
+      }
+
+      // Update delivery request status
+      const updatedRequest = await prisma.deliveryRequest.update({
+        where: { id },
+        data: { 
+          status: "rejected",
+          specialRequirements: reason ? `${deliveryRequest.specialRequirements || ''}\nRejection Reason: ${reason}` : deliveryRequest.specialRequirements
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } }
+        }
+      });
+
+      // Send notification to customer
+      await notificationService.sendEmail({
+        to: deliveryRequest.customer?.email || "",
+        subject: "Delivery Request Update - Warehouse Wizard",
+        html: `
+          <h2>Delivery Request Update</h2>
+          <p>Your delivery request has been reviewed and unfortunately cannot be processed at this time.</p>
+          <p>Tracking Number: ${deliveryRequest.trackingNumber}</p>
+          <p>Reason: ${reason || "No specific reason provided"}</p>
+          <p>Please contact our support team for more information or to submit a new request.</p>
+        `
+      });
+
+      res.json({ message: "Delivery request rejected", deliveryRequest: updatedRequest });
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to reject delivery request", error });
+    }
+  }
+
   private generateTrackingNumber(): string {
     const prefix = "WW";
     const timestamp = Date.now().toString().slice(-8);

@@ -43,4 +43,8 @@ router.post("/:id/complete", authorizeRoles("warehouse", "supervisor", "admin"),
 // Tracking
 router.get("/:id/track", deliveryController.trackDelivery);
 
+// Supervisor: Approve/Reject delivery requests (A26-A27)
+router.post("/:id/approve", authorizeRoles("supervisor", "admin"), deliveryController.approveDeliveryRequest);
+router.post("/:id/reject", authorizeRoles("supervisor", "admin"), deliveryController.rejectDeliveryRequest);
+
 export default router;

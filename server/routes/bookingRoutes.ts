@@ -22,8 +22,10 @@ router.use(authenticateToken);
 
 // Customer and general routes
 router.get("/", bookingController.getBookings);
+router.get("/requests", bookingController.getBookingRequests);
 router.get("/:id", bookingController.getBookingById);
 router.post("/", validateRequest(insertBookingSchema), bookingController.createBooking);
+router.post("/requests/:id/process", bookingController.processQuoteRequest);
 
 // Status-specific routes
 router.get("/status/pending", authorizeRoles("supervisor", "admin"), bookingController.getPendingBookings);
@@ -34,6 +36,10 @@ router.get("/status/completed", bookingController.getCompletedBookings);
 // Supervisor actions
 router.post("/:id/confirm", authorizeRoles("supervisor", "admin"), bookingController.confirmBooking);
 router.post("/:id/cancel", authorizeRoles("supervisor", "admin", "customer"), bookingController.cancelBooking);
+
+// Supervisor booking approval/rejection
+router.post("/:id/approve-by-supervisor", authorizeRoles("supervisor", "admin"), bookingController.approveBookingBySupervisor);
+router.post("/:id/reject-by-supervisor", authorizeRoles("supervisor", "admin"), bookingController.rejectBookingBySupervisor);
 
 // Update booking
 router.put("/:id", bookingController.updateBooking);

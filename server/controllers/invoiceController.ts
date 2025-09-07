@@ -435,6 +435,263 @@ export class InvoiceController {
     }
   }
 
+  // Customer invoice request
+  async requestInvoice(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { bookingId } = req.body;
+      const customerId = (req.user as any)?.id || (req.user as any)?._id?.toString();
+      
+      // Verify booking belongs to customer
+      const booking = await prisma.booking.findFirst({
+        where: { id: bookingId, customerId },
+        include: { warehouse: { select: { name: true, location: true } } }
+      });
+      
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+      
+      // Check if invoice already exists
+      const existingInvoice = await prisma.invoice.findFirst({
+        where: { bookingId }
+      });
+      
+      if (existingInvoice) {
+        return res.status(400).json({ message: "Invoice already exists for this booking" });
+      }
+      
+      // Create invoice request
+      const invoice = await prisma.invoice.create({
+        data: {
+          bookingId,
+          customerId,
+          invoiceNumber: await this.generateInvoiceNumber(),
+          amount: booking.totalAmount,
+          status: "draft",
+          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          booking: { 
+            include: { 
+              warehouse: { select: { name: true, location: true, city: true, state: true } }
+            }
+          }
+        }
+      });
+      
+      res.status(201).json(invoice);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to request invoice", error });
+    }
+  }
+
+  // Customer payment detail submission
+  async submitPaymentDetails(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { paymentMethod, transactionId, paymentDate, amount } = req.body;
+      const customerId = (req.user as any)?.id || (req.user as any)?._id?.toString();
+      
+      // Verify invoice belongs to customer
+      const invoice = await prisma.invoice.findFirst({
+        where: { id, customerId }
+      });
+      
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      
+      // Update invoice with payment details
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id },
+        data: {
+          status: "paid",
+          paidAt: new Date(paymentDate || new Date()),
+          updatedAt: new Date()
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          booking: { 
+            include: { 
+              warehouse: { select: { name: true, location: true, city: true, state: true } }
+            }
+          }
+        }
+      });
+      
+      // Send payment confirmation
+      await notificationService.sendEmail({
+        to: (updatedInvoice.customer as any).email,
+        subject: "Payment Received - Warehouse Wizard",
+        html: `
+          <h2>Payment Received</h2>
+          <p>Thank you for your payment.</p>
+          <p>Invoice Number: ${updatedInvoice.invoiceNumber}</p>
+          <p>Amount: $${updatedInvoice.amount}</p>
+          <p>Payment Method: ${paymentMethod}</p>
+          <p>Transaction ID: ${transactionId}</p>
+          <p>Payment Date: ${new Date(paymentDate || new Date()).toLocaleDateString()}</p>
+        `,
+      });
+      
+      res.json(updatedInvoice);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to submit payment details", error });
+    }
+  }
+
+  // Customer invoice request
+  async requestInvoice(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { bookingId, amount, dueDate } = req.body;
+      const customerId = (req.user as any).id;
+      
+      // Check if booking exists and belongs to customer
+      const booking = await prisma.booking.findFirst({
+        where: { 
+          id: bookingId, 
+          customerId,
+          status: "confirmed"
+        },
+        include: { customer: true, warehouse: true }
+      });
+
+      if (!booking) {
+        return res.status(404).json({ message: "Confirmed booking not found" });
+      }
+
+      // Generate invoice number
+      const invoiceNumber = await this.generateInvoiceNumber();
+      
+      const invoice = await prisma.invoice.create({
+        data: {
+          bookingId,
+          customerId,
+          invoiceNumber,
+          amount: amount || booking.totalAmount,
+          status: "draft",
+          dueDate: new Date(dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)) // 30 days from now
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          booking: { 
+            include: { 
+              warehouse: { select: { name: true, location: true } }
+            }
+          }
+        }
+      });
+
+      // Send notification to warehouse
+      await notificationService.sendEmail({
+        to: "warehouse@example.com", // TODO: Get actual warehouse email
+        subject: `Invoice Request - Booking ${bookingId}`,
+        html: `
+          <h2>Invoice Request</h2>
+          <p>Customer has requested an invoice for their confirmed booking.</p>
+          <p>Booking ID: ${bookingId}</p>
+          <p>Customer: ${booking.customer.firstName} ${booking.customer.lastName}</p>
+          <p>Amount: $${amount || booking.totalAmount}</p>
+          <p>Due Date: ${new Date(dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)).toLocaleDateString()}</p>
+          <p>Please review and process the invoice request.</p>
+        `,
+      });
+
+      res.status(201).json({ message: "Invoice request submitted successfully", invoice });
+      return;
+    } catch (error) {
+      console.error("Invoice request error:", error);
+      return res.status(500).json({ message: "Failed to request invoice", error });
+    }
+  }
+
+  // Customer payment details submission
+  async submitPaymentDetails(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { invoiceId, paymentMethod, transactionId, paymentAmount, paymentDate } = req.body;
+      const customerId = (req.user as any).id;
+      
+      // Check if invoice exists and belongs to customer
+      const invoice = await prisma.invoice.findFirst({
+        where: { 
+          id: invoiceId, 
+          customerId
+        },
+        include: { customer: true, booking: true }
+      });
+
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+
+      // Update invoice with payment details
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          status: "paid",
+          paidAt: new Date(paymentDate || new Date()),
+          // Store payment details in specialRequirements as JSON
+          specialRequirements: JSON.stringify({
+            paymentMethod,
+            transactionId,
+            paymentAmount,
+            paymentDate: paymentDate || new Date(),
+            submittedBy: "customer"
+          })
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          booking: { 
+            include: { 
+              warehouse: { select: { name: true, location: true } }
+            }
+          }
+        }
+      });
+
+      // Send confirmation notification
+      await notificationService.sendEmail({
+        to: invoice.customer.email,
+        subject: `Payment Confirmed - Invoice ${invoice.invoiceNumber}`,
+        html: `
+          <h2>Payment Confirmed</h2>
+          <p>Your payment has been successfully submitted and confirmed.</p>
+          <p>Invoice Number: ${invoice.invoiceNumber}</p>
+          <p>Amount: $${paymentAmount || invoice.amount}</p>
+          <p>Payment Method: ${paymentMethod}</p>
+          <p>Transaction ID: ${transactionId}</p>
+          <p>Payment Date: ${new Date(paymentDate || new Date()).toLocaleDateString()}</p>
+          <p>Thank you for your payment!</p>
+        `,
+      });
+
+      // Send notification to accounts
+      await notificationService.sendEmail({
+        to: "accounts@example.com", // TODO: Get actual accounts email
+        subject: `Payment Received - Invoice ${invoice.invoiceNumber}`,
+        html: `
+          <h2>Payment Received</h2>
+          <p>Customer has submitted payment details for invoice.</p>
+          <p>Invoice Number: ${invoice.invoiceNumber}</p>
+          <p>Customer: ${invoice.customer.firstName} ${invoice.customer.lastName}</p>
+          <p>Amount: $${paymentAmount || invoice.amount}</p>
+          <p>Payment Method: ${paymentMethod}</p>
+          <p>Transaction ID: ${transactionId}</p>
+          <p>Please verify and process the payment.</p>
+        `,
+      });
+
+      res.json({ message: "Payment details submitted successfully", invoice: updatedInvoice });
+      return;
+    } catch (error) {
+      console.error("Payment submission error:", error);
+      return res.status(500).json({ message: "Failed to submit payment details", error });
+    }
+  }
+
   private async generateInvoiceNumber(): Promise<string> {
     const prefix = "INV";
     const year = new Date().getFullYear();
@@ -456,6 +713,139 @@ export class InvoiceController {
     const sequence = String(count + 1).padStart(4, '0');
     
     return `${prefix}-${year}${month}-${sequence}`;
+  }
+
+  // Warehouse: Accept/Reject invoice requests (A29-A30)
+  async acceptInvoiceRequest(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { notes, invoiceDetails } = req.body;
+      
+      // Only warehouse can accept invoice requests
+      if ((req.user! as any).role !== "warehouse") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      const invoice = await prisma.invoice.findUnique({
+        where: { id },
+        include: { 
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          booking: { 
+            include: { 
+              warehouse: { select: { name: true, location: true, city: true, state: true } }
+            }
+          }
+        }
+      });
+
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+
+      // Update invoice status to accepted and add details
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id },
+        data: { 
+          status: "accepted",
+          specialRequirements: invoiceDetails ? 
+            `${invoice.specialRequirements || ''}\nInvoice Details: ${JSON.stringify(invoiceDetails)}` : 
+            invoice.specialRequirements
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          booking: { 
+            include: { 
+              warehouse: { select: { name: true, location: true, city: true, state: true } }
+            }
+          }
+        }
+      });
+
+      // Send notification to customer
+      await notificationService.sendEmail({
+        to: invoice.customer?.email || "",
+        subject: "Invoice Request Accepted - Warehouse Wizard",
+        html: `
+          <h2>Invoice Request Accepted</h2>
+          <p>Your invoice request has been accepted and is being processed.</p>
+          <p>Invoice Number: <strong>${invoice.invoiceNumber}</strong></p>
+          <p>Amount: $${invoice.amount?.toFixed(2) || 'TBD'}</p>
+          <p>Status: Accepted and ready for payment</p>
+          <p>Please proceed with payment submission.</p>
+        `
+      });
+
+      // Send notification to accounts
+      await notificationService.sendEmail({
+        to: "accounts@warehousewizard.com", // This should be dynamic
+        subject: "Invoice Request Accepted - Payment Processing Required",
+        html: `
+          <h2>Invoice Request Accepted</h2>
+          <p>Customer: ${invoice.customer?.firstName} ${invoice.customer?.lastName}</p>
+          <p>Invoice Number: ${invoice.invoiceNumber}</p>
+          <p>Amount: $${invoice.amount?.toFixed(2) || 'TBD'}</p>
+          <p>Please prepare for payment processing.</p>
+        `
+      });
+
+      res.json({ message: "Invoice request accepted successfully", invoice: updatedInvoice });
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to accept invoice request", error });
+    }
+  }
+
+  async rejectInvoiceRequest(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      
+      // Only warehouse can reject invoice requests
+      if ((req.user! as any).role !== "warehouse") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      const invoice = await prisma.invoice.findUnique({
+        where: { id },
+        include: { 
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } }
+        }
+      });
+
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+
+      // Update invoice status to rejected
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id },
+        data: { 
+          status: "rejected",
+          specialRequirements: reason ? `${invoice.specialRequirements || ''}\nRejection Reason: ${reason}` : invoice.specialRequirements
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } }
+        }
+      });
+
+      // Send notification to customer
+      await notificationService.sendEmail({
+        to: invoice.customer?.email || "",
+        subject: "Invoice Request Update - Warehouse Wizard",
+        html: `
+          <h2>Invoice Request Update</h2>
+          <p>Your invoice request has been reviewed and unfortunately cannot be processed at this time.</p>
+          <p>Invoice Number: ${invoice.invoiceNumber}</p>
+          <p>Reason: ${reason || "No specific reason provided"}</p>
+          <p>Please contact our support team for more information or to submit a new request.</p>
+        `
+      });
+
+      res.json({ message: "Invoice request rejected", invoice: updatedInvoice });
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to reject invoice request", error });
+    }
   }
 }
 

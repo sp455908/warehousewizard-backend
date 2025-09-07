@@ -10,6 +10,11 @@ import authRoutes from "./authRoutes";
 import dashboardRoutes from "./dashboardRoutes";
 import rolesRoutes from "./rolesRoutes";
 import settingsRoutes from "./settingsRoutes";
+import rfqRoutes from "./rfqRoutes";
+import cartingRoutes from "./cartingRoutes";
+import deliveryAdviceRoutes from "./deliveryAdviceRoutes";
+import deliveryOrderRoutes from "./deliveryOrderRoutes";
+import deliveryReportRoutes from "./deliveryReportRoutes";
 
 const router = Router();
 
@@ -25,6 +30,11 @@ router.use("/users", userRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/roles", rolesRoutes);
 router.use("/settings", settingsRoutes);
+router.use("/rfqs", rfqRoutes);
+router.use("/carting-details", cartingRoutes);
+router.use("/delivery-advices", deliveryAdviceRoutes);
+router.use("/delivery-orders", deliveryOrderRoutes);
+router.use("/delivery-reports", deliveryReportRoutes);
 
 // Health check
 router.get("/health", (req, res) => {

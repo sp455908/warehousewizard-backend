@@ -30,6 +30,9 @@ model User {
   otpVerifications OtpVerification[]     @relation("UserOtp")
   assignedQuotes   Quote[]               @relation("AssignedQuotes")
   quotes           Quote[]               @relation("UserQuotes")
+  deliveryAdvices  DeliveryAdvice[]      @relation("DeliveryAdviceCustomer")
+  deliveryOrders   DeliveryOrder[]       @relation("DeliveryOrderCustomer")
+  deliveryReports  DeliveryReport[]      @relation("DeliveryReportCustomer")
 }
 
 model OtpVerification {
@@ -61,6 +64,11 @@ model Warehouse {
   bookings        Booking[]
   formSubmissions FormSubmission[] @relation("FormWarehouse")
   quotes          Quote[]
+  rfqs            RFQ[]
+  rates           Rate[]
+  cartingDetails  CartingDetail[]
+  deliveryOrders  DeliveryOrder[]
+  deliveryReports DeliveryReport[]
 }
 
 model Quote {
@@ -75,6 +83,13 @@ model Quote {
   assignedTo          String?
   finalPrice          Float?
   warehouseId         String?
+  warehouseQuote      Float?           // Warehouse's quoted price
+  salesMargin         Float?           // Sales team's margin
+  salesPrice          Float?           // Final price after margin
+  purchaseNotes       String?          // Purchase team notes
+  salesNotes          String?          // Sales team notes
+  warehouseNotes      String?          // Warehouse team notes
+  customerNotes       String?          // Customer notes
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
   bookings            Booking[]
@@ -82,6 +97,7 @@ model Quote {
   assignedToUser      User?            @relation("AssignedQuotes", fields: [assignedTo], references: [id])
   customer            User             @relation("UserQuotes", fields: [customerId], references: [id], onDelete: Cascade)
   warehouse           Warehouse?       @relation(fields: [warehouseId], references: [id])
+  rfqs                RFQ[]
 }
 
 model Booking {
@@ -103,6 +119,10 @@ model Booking {
   cargoItems   CargoDispatchDetail[]
   deliveries   DeliveryRequest[]
   invoices     Invoice[]
+  cartingDetails CartingDetail[]
+  deliveryAdvices DeliveryAdvice[]
+  deliveryOrders DeliveryOrder[]
+  deliveryReports DeliveryReport[]
 }
 
 model CargoDispatchDetail {
@@ -180,6 +200,113 @@ model WorkflowEvent {
   createdAt      DateTime @default(now())
 }
 
+model RFQ {
+  id              String      @id @default(uuid())
+  quoteId         String
+  warehouseId     String
+  status          RFQStatus   @default(sent)
+  requestedAt     DateTime    @default(now())
+  respondedAt     DateTime?
+  validUntil      DateTime?
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  quote           Quote       @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  warehouse       Warehouse   @relation(fields: [warehouseId], references: [id])
+  rates           Rate[]
+}
+
+model Rate {
+  id              String      @id @default(uuid())
+  rfqId           String
+  warehouseId     String
+  baseRate        Float
+  surcharges      Json?
+  totalRate       Float
+  validityDays    Int
+  capacityConfirmed Boolean   @default(false)
+  tat             String?
+  notes           String?
+  status          RateStatus  @default(pending)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  rfq             RFQ         @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  warehouse       Warehouse   @relation(fields: [warehouseId], references: [id])
+}
+
+model CartingDetail {
+  id              String      @id @default(uuid())
+  bookingId       String
+  warehouseId     String
+  itemDescription String
+  quantity        Int
+  weight          Float?
+  dimensions      String?
+  specialHandling String?
+  status          CartingStatus @default(submitted)
+  submittedAt     DateTime    @default(now())
+  confirmedAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  booking         Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  warehouse       Warehouse   @relation(fields: [warehouseId], references: [id])
+}
+
+model DeliveryAdvice {
+  id              String      @id @default(uuid())
+  bookingId       String
+  customerId      String
+  deliveryAddress String
+  preferredDate   DateTime
+  urgency         DeliveryUrgency @default(standard)
+  instructions    String?
+  status          DeliveryAdviceStatus @default(created)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  booking         Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customer        User        @relation("DeliveryAdviceCustomer", fields: [customerId], references: [id])
+  deliveryOrders  DeliveryOrder[]
+}
+
+model DeliveryOrder {
+  id              String      @id @default(uuid())
+  deliveryAdviceId String
+  bookingId       String
+  customerId      String
+  warehouseId     String
+  orderNumber     String      @unique
+  status          DeliveryOrderStatus @default(created)
+  issuedAt        DateTime    @default(now())
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deliveryAdvice  DeliveryAdvice @relation(fields: [deliveryAdviceId], references: [id], onDelete: Cascade)
+  booking         Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customer        User        @relation("DeliveryOrderCustomer", fields: [customerId], references: [id])
+  warehouse       Warehouse   @relation(fields: [warehouseId], references: [id])
+  deliveryReports DeliveryReport[]
+}
+
+model DeliveryReport {
+  id              String      @id @default(uuid())
+  deliveryOrderId String
+  bookingId       String
+  customerId      String
+  warehouseId     String
+  reportNumber    String      @unique
+  deliveredAt     DateTime
+  pod             String?     // Proof of Delivery
+  grn             String?     // Goods Receipt Note
+  quantities      Json?
+  exceptions      String?
+  status          DeliveryReportStatus @default(created)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deliveryOrder   DeliveryOrder @relation(fields: [deliveryOrderId], references: [id], onDelete: Cascade)
+  booking         Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customer        User        @relation("DeliveryReportCustomer", fields: [customerId], references: [id])
+  warehouse       Warehouse   @relation(fields: [warehouseId], references: [id])
+}
+
 enum UserRole {
   customer
   purchase_support
@@ -206,6 +333,17 @@ enum QuoteStatus {
   quoted
   approved
   rejected
+  warehouse_quote_requested
+  warehouse_quote_received
+  warehouse_quote_accepted
+  warehouse_quote_rejected
+  purchase_assigned
+  sales_assigned
+  rate_confirmed
+  customer_confirmation_pending
+  customer_accepted
+  customer_rejected
+  booking_confirmed
 }
 
 enum BookingStatus {
@@ -214,6 +352,8 @@ enum BookingStatus {
   active
   completed
   cancelled
+  customer_confirmation_pending
+  supervisor_confirmation_pending
 }
 
 enum CargoStatus {
@@ -221,6 +361,8 @@ enum CargoStatus {
   approved
   processing
   completed
+  cdd_confirmed
+  carting_details_submitted
 }
 
 enum DeliveryStatus {
@@ -228,6 +370,9 @@ enum DeliveryStatus {
   scheduled
   in_transit
   delivered
+  delivery_advice_created
+  delivery_order_created
+  delivery_report_created
 }
 
 enum DeliveryUrgency {
@@ -252,4 +397,43 @@ enum FormType {
   cfs_export
   cfs_export_dry
   refer_domestic_warehouse
+}
+
+enum RFQStatus {
+  sent
+  responded
+  expired
+  cancelled
+}
+
+enum RateStatus {
+  pending
+  accepted
+  rejected
+  expired
+}
+
+enum CartingStatus {
+  submitted
+  confirmed
+  rejected
+}
+
+enum DeliveryAdviceStatus {
+  created
+  sent
+  acknowledged
+}
+
+enum DeliveryOrderStatus {
+  created
+  sent
+  acknowledged
+  executed
+}
+
+enum DeliveryReportStatus {
+  created
+  sent
+  acknowledged
 }

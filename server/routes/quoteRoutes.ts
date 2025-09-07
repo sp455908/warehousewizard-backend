@@ -93,6 +93,13 @@ router.post(
   quoteController.assignQuote
 );
 
+// Customer actions
+router.post(
+  "/:id/confirm",
+  authorizeRoles("customer"),
+  quoteController.confirmQuote
+);
+
 // Sales support and supervisor actions
 router.post(
   "/:id/approve",
@@ -104,6 +111,40 @@ router.post(
   "/:id/reject",
   authorizeRoles("sales_support", "supervisor", "admin"),
   quoteController.rejectQuote
+);
+
+// Customer quote confirmation
+router.post(
+  "/:id/confirm-by-customer",
+  authorizeRoles("customer"),
+  quoteController.confirmQuoteByCustomer
+);
+
+// Sales rate editing
+router.put(
+  "/:id/edit-rate",
+  authorizeRoles("sales_support", "admin"),
+  quoteController.editQuoteRate
+);
+
+// Purchase Panel: Accept/Reject warehouse quotes (A2-A3)
+router.post(
+  "/:id/accept-warehouse-quote",
+  authorizeRoles("purchase_support", "admin"),
+  quoteController.acceptWarehouseQuote
+);
+
+router.post(
+  "/:id/reject-warehouse-quote",
+  authorizeRoles("purchase_support", "admin"),
+  quoteController.rejectWarehouseQuote
+);
+
+// Purchase Panel: Assign warehouse to sales (A9-A10)
+router.post(
+  "/:id/assign-to-sales",
+  authorizeRoles("purchase_support", "admin"),
+  quoteController.assignWarehouseToSales
 );
 
 export default router;
