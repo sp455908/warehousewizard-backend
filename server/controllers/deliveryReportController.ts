@@ -1,140 +1,149 @@
 import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../middleware/auth";
-import { notificationService } from "../services/notificationService";
 import { prisma } from "../config/prisma";
+import { notificationService } from "../services/notificationService";
 
 export class DeliveryReportController {
+  // Warehouse creates delivery report (C33)
   async createDeliveryReport(req: AuthenticatedRequest, res: Response) {
     try {
-      const { deliveryOrderId, bookingId, customerId, warehouseId, deliveredAt, pod, grn, quantities, exceptions } = req.body;
-      
+      const { deliveryOrderId, deliveredAt, pod, grn, quantities, exceptions } = req.body;
+      const warehouseId = (req.user! as any).id || (req.user! as any)._id?.toString();
+
       // Only warehouse can create delivery reports
       if ((req.user! as any).role !== "warehouse") {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 
+      // Get delivery order details
+      const deliveryOrder = await prisma.deliveryOrder.findUnique({
+        where: { id: deliveryOrderId },
+        include: {
+          booking: {
+            include: {
+              customer: { select: { firstName: true, lastName: true, email: true } },
+              warehouse: { select: { name: true, location: true } }
+            }
+          }
+        }
+      });
+
+      if (!deliveryOrder) {
+        return res.status(404).json({ message: "Delivery order not found" });
+      }
+
+      // Verify delivery order belongs to this warehouse
+      if (deliveryOrder.warehouseId !== warehouseId) {
+        return res.status(403).json({ message: "Delivery order does not belong to this warehouse" });
+      }
+
       // Generate delivery report number
-      const reportNumber = await this.generateDeliveryReportNumber();
+      const reportNumber = `DR-${Date.now()}-${deliveryOrder.bookingId.slice(-6)}`;
 
       const deliveryReport = await prisma.deliveryReport.create({
         data: {
           deliveryOrderId,
-          bookingId,
-          customerId,
+          bookingId: deliveryOrder.bookingId,
+          customerId: deliveryOrder.customerId,
           warehouseId,
           reportNumber,
           deliveredAt: new Date(deliveredAt),
-          pod,
-          grn,
+          pod: pod || null,
+          grn: grn || null,
           quantities: quantities || {},
-          exceptions,
-          status: "created",
+          exceptions: exceptions || null,
+          status: "created"
         },
         include: {
-          deliveryOrder: true,
-          booking: { 
-            include: { 
+          booking: {
+            include: {
               customer: { select: { firstName: true, lastName: true, email: true } },
               warehouse: { select: { name: true, location: true } }
             }
           },
-          customer: { select: { firstName: true, lastName: true, email: true } },
+          deliveryOrder: true,
           warehouse: { select: { name: true, location: true } }
         }
       });
 
-      // Send notification to customer and supervisor
+      // Update delivery order status to completed
+      await prisma.deliveryOrder.update({
+        where: { id: deliveryOrderId },
+        data: {
+          status: "executed",
+          updatedAt: new Date()
+        }
+      });
+
+      // Send notification to customer
       await notificationService.sendEmail({
-        to: (deliveryReport.customer as any).email,
+        to: deliveryOrder.booking.customer.email,
         subject: `Delivery Report Created - ${reportNumber}`,
         html: `
           <h2>Delivery Report Created</h2>
-          <p>Delivery report has been created for your order.</p>
-          <p>Report Number: ${reportNumber}</p>
-          <p>Booking ID: ${bookingId}</p>
-          <p>Delivered At: ${new Date(deliveredAt).toLocaleString()}</p>
-          <p>Warehouse: ${(deliveryReport.warehouse as any).name}</p>
-          <p>POD: ${pod || 'Not provided'}</p>
-          <p>GRN: ${grn || 'Not provided'}</p>
-          ${exceptions ? `<p>Exceptions: ${exceptions}</p>` : ''}
+          <p>Your delivery has been completed and a delivery report has been generated.</p>
+          <p><strong>Report Number:</strong> ${reportNumber}</p>
+          <p><strong>Order Number:</strong> ${deliveryOrder.orderNumber}</p>
+          <p><strong>Booking ID:</strong> ${deliveryOrder.bookingId}</p>
+          <p><strong>Delivered At:</strong> ${new Date(deliveredAt).toLocaleString()}</p>
+          <p><strong>POD:</strong> ${pod || 'Not provided'}</p>
+          <p><strong>GRN:</strong> ${grn || 'Not provided'}</p>
+          ${exceptions ? `<p><strong>Exceptions:</strong> ${exceptions}</p>` : ''}
+          <p>Thank you for using our warehouse services!</p>
         `,
       });
 
+      // Send notification to supervisor
       await notificationService.sendEmail({
         to: "supervisor@example.com", // TODO: Get actual supervisor email
         subject: `Delivery Report Created - ${reportNumber}`,
         html: `
           <h2>Delivery Report Created</h2>
-          <p>Warehouse ${(deliveryReport.warehouse as any).name} has created a delivery report.</p>
-          <p>Report Number: ${reportNumber}</p>
-          <p>Booking ID: ${bookingId}</p>
-          <p>Customer: ${(deliveryReport.customer as any).firstName} ${(deliveryReport.customer as any).lastName}</p>
-          <p>Delivered At: ${new Date(deliveredAt).toLocaleString()}</p>
-          <p>POD: ${pod || 'Not provided'}</p>
-          <p>GRN: ${grn || 'Not provided'}</p>
-          ${exceptions ? `<p>Exceptions: ${exceptions}</p>` : ''}
+          <p>A delivery report has been created by the warehouse.</p>
+          <p><strong>Report Number:</strong> ${reportNumber}</p>
+          <p><strong>Order Number:</strong> ${deliveryOrder.orderNumber}</p>
+          <p><strong>Booking ID:</strong> ${deliveryOrder.bookingId}</p>
+          <p><strong>Customer:</strong> ${deliveryOrder.booking.customer.firstName} ${deliveryOrder.booking.customer.lastName}</p>
+          <p><strong>Delivered At:</strong> ${new Date(deliveredAt).toLocaleString()}</p>
+          <p>The delivery process has been completed successfully.</p>
         `,
       });
 
-      res.status(201).json(deliveryReport);
+      res.json(deliveryReport);
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to create delivery report", error });
     }
   }
 
-  async getDeliveryReports(req: AuthenticatedRequest, res: Response) {
+  // Get all delivery reports for warehouse
+  async getWarehouseDeliveryReports(req: AuthenticatedRequest, res: Response) {
     try {
-      const user = req.user! as any;
-      let deliveryReports;
+      const warehouseId = (req.user! as any).id || (req.user! as any)._id?.toString();
 
-      if (user.role === "customer") {
-        // Get delivery reports for this customer
-        deliveryReports = await prisma.deliveryReport.findMany({
-          where: { customerId: user.id },
-          include: {
-            deliveryOrder: true,
-            booking: { 
-              include: { 
-                warehouse: { select: { name: true, location: true } }
-              }
-            },
-            warehouse: { select: { name: true, location: true } }
-          },
-          orderBy: { createdAt: 'desc' }
-        });
-      } else if (user.role === "warehouse") {
-        // Get delivery reports for this warehouse
-        deliveryReports = await prisma.deliveryReport.findMany({
-          where: { warehouseId: user.id },
-          include: {
-            deliveryOrder: true,
-            booking: { 
-              include: { 
-                customer: { select: { firstName: true, lastName: true, email: true, company: true } }
-              }
-            },
-            customer: { select: { firstName: true, lastName: true, email: true } }
-          },
-          orderBy: { createdAt: 'desc' }
-        });
-      } else {
-        // Get all delivery reports for supervisor, admin
-        deliveryReports = await prisma.deliveryReport.findMany({
-          include: {
-            deliveryOrder: true,
-            booking: { 
-              include: { 
-                customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-                warehouse: { select: { name: true, location: true } }
-              }
-            },
-            customer: { select: { firstName: true, lastName: true, email: true } },
-            warehouse: { select: { name: true, location: true } }
-          },
-          orderBy: { createdAt: 'desc' }
-        });
+      // Only warehouse can view their delivery reports
+      if ((req.user! as any).role !== "warehouse") {
+        return res.status(403).json({ message: "Insufficient permissions" });
       }
+
+      const { status } = req.query;
+
+      const deliveryReports = await prisma.deliveryReport.findMany({
+        where: {
+          warehouseId,
+          ...(status ? { status: status as any } : {})
+        },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          booking: {
+            include: {
+              customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+              warehouse: { select: { name: true, location: true } }
+            }
+          },
+          deliveryOrder: true
+        }
+      });
 
       res.json(deliveryReports);
       return;
@@ -143,26 +152,99 @@ export class DeliveryReportController {
     }
   }
 
+  // Get all delivery reports for supervisor
+  async getAllDeliveryReports(req: AuthenticatedRequest, res: Response) {
+    try {
+      // Only supervisor can view all delivery reports
+      if ((req.user! as any).role !== "supervisor") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      const { status } = req.query;
+
+      const deliveryReports = await prisma.deliveryReport.findMany({
+        where: status ? { status: status as any } : {},
+        orderBy: { createdAt: 'desc' },
+        include: {
+          booking: {
+            include: {
+              customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+              warehouse: { select: { name: true, location: true } }
+            }
+          },
+          deliveryOrder: true,
+          warehouse: { select: { name: true, location: true } }
+        }
+      });
+
+      res.json(deliveryReports);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to fetch delivery reports", error });
+    }
+  }
+
+  // Get delivery reports for customer
+  async getCustomerDeliveryReports(req: AuthenticatedRequest, res: Response) {
+    try {
+      const customerId = (req.user! as any).id || (req.user! as any)._id?.toString();
+
+      // Only customers can view their delivery reports
+      if ((req.user! as any).role !== "customer") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      const deliveryReports = await prisma.deliveryReport.findMany({
+        where: { customerId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          booking: {
+            include: {
+              warehouse: { select: { name: true, location: true } }
+            }
+          },
+          deliveryOrder: true,
+          warehouse: { select: { name: true, location: true } }
+        }
+      });
+
+      res.json(deliveryReports);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to fetch delivery reports", error });
+    }
+  }
+
+  // Get delivery report by ID
   async getDeliveryReportById(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
+      const user = req.user! as any;
+
       const deliveryReport = await prisma.deliveryReport.findUnique({
         where: { id },
         include: {
-          deliveryOrder: true,
-          booking: { 
-            include: { 
+          booking: {
+            include: {
               customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-              warehouse: { select: { name: true, location: true, city: true, state: true } }
+              warehouse: { select: { name: true, location: true } }
             }
           },
-          customer: { select: { firstName: true, lastName: true, email: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
+          deliveryOrder: true,
+          warehouse: { select: { name: true, location: true } }
         }
       });
 
       if (!deliveryReport) {
         return res.status(404).json({ message: "Delivery report not found" });
+      }
+
+      // Check permissions
+      if (user.role === "customer" && deliveryReport.customerId !== (user.id || user._id?.toString())) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      if (user.role === "warehouse" && deliveryReport.warehouseId !== (user.id || user._id?.toString())) {
+        return res.status(403).json({ message: "Insufficient permissions" });
       }
 
       res.json(deliveryReport);
@@ -172,99 +254,38 @@ export class DeliveryReportController {
     }
   }
 
-  async updateDeliveryReport(req: AuthenticatedRequest, res: Response) {
+  // Update delivery report status
+  async updateDeliveryReportStatus(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const updateData = req.body;
-      
+      const { status } = req.body;
+      const user = req.user! as any;
+
+      // Only warehouse can update delivery report status
+      if (user.role !== "warehouse") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
       const deliveryReport = await prisma.deliveryReport.update({
         where: { id },
-        data: { ...updateData, updatedAt: new Date() },
+        data: {
+          status: status as any,
+          updatedAt: new Date()
+        },
         include: {
-          deliveryOrder: true,
-          booking: { 
-            include: { 
-              customer: { select: { firstName: true, lastName: true, email: true } },
-              warehouse: { select: { name: true, location: true } }
+          booking: {
+            include: {
+              customer: { select: { firstName: true, lastName: true, email: true } }
             }
-          },
-          customer: { select: { firstName: true, lastName: true, email: true } },
-          warehouse: { select: { name: true, location: true } }
+          }
         }
       });
 
       res.json(deliveryReport);
       return;
     } catch (error) {
-      return res.status(500).json({ message: "Failed to update delivery report", error });
+      return res.status(500).json({ message: "Failed to update delivery report status", error });
     }
-  }
-
-  async getDeliveryReportsByBooking(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { bookingId } = req.params;
-      const deliveryReports = await prisma.deliveryReport.findMany({
-        where: { bookingId },
-        include: {
-          deliveryOrder: true,
-          warehouse: { select: { name: true, location: true } }
-        },
-        orderBy: { createdAt: 'desc' }
-      });
-
-      res.json(deliveryReports);
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to fetch delivery reports by booking", error });
-    }
-  }
-
-  async getDeliveryReportsByDeliveryOrder(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { deliveryOrderId } = req.params;
-      const deliveryReports = await prisma.deliveryReport.findMany({
-        where: { deliveryOrderId },
-        include: {
-          booking: { 
-            include: { 
-              customer: { select: { firstName: true, lastName: true, email: true } },
-              warehouse: { select: { name: true, location: true } }
-            }
-          },
-          customer: { select: { firstName: true, lastName: true, email: true } },
-          warehouse: { select: { name: true, location: true } }
-        },
-        orderBy: { createdAt: 'desc' }
-      });
-
-      res.json(deliveryReports);
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to fetch delivery reports by delivery order", error });
-    }
-  }
-
-  private async generateDeliveryReportNumber(): Promise<string> {
-    const prefix = "DR";
-    const year = new Date().getFullYear();
-    const month = String(new Date().getMonth() + 1).padStart(2, '0');
-    
-    // Get the count of delivery reports this month
-    const startOfMonth = new Date(year, new Date().getMonth(), 1);
-    const endOfMonth = new Date(year, new Date().getMonth() + 1, 0);
-    
-    const count = await prisma.deliveryReport.count({
-      where: {
-        createdAt: {
-          gte: startOfMonth,
-          lte: endOfMonth
-        }
-      }
-    });
-    
-    const sequence = String(count + 1).padStart(4, '0');
-    
-    return `${prefix}-${year}${month}-${sequence}`;
   }
 }
 

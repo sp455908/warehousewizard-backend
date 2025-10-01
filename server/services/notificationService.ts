@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { prisma } from "../config/prisma";
 // import twilio from "twilio"; // Commented out for now
 
 export interface EmailOptions {
@@ -140,6 +141,135 @@ export class NotificationService {
     // };
     // return this.sendEmail(emailOptions);
     return true;
+  }
+
+  // Role-based notification methods
+  async sendNotificationToRole(role: string, subject: string, message: string, data?: any): Promise<boolean> {
+    try {
+      const users = await prisma.user.findMany({
+        where: { 
+          role: role as any,
+          isActive: true,
+          isEmailVerified: true
+        }
+      });
+
+      const emailPromises = users.map(user => 
+        this.sendEmail({
+          to: user.email,
+          subject: subject,
+          html: `
+            <h2>${subject}</h2>
+            <p>${message}</p>
+            ${data ? `
+              <h3>Details:</h3>
+              <ul>
+                ${Object.entries(data).map(([key, value]) => `<li><strong>${key}:</strong> ${value}</li>`).join('')}
+              </ul>
+            ` : ''}
+            <p>Please log in to your dashboard to take the required action.</p>
+          `
+        })
+      );
+
+      await Promise.all(emailPromises);
+      return true;
+    } catch (error) {
+      console.error("Failed to send notification to role:", error);
+      return false;
+    }
+  }
+
+  async sendWorkflowNotification(quoteId: string, currentStep: string, nextStep: string, customerInfo?: any, warehouseInfo?: any): Promise<boolean> {
+    try {
+      // Get workflow step information
+      const stepInfo = {
+        C1: { role: "purchase_support", action: "Review Quote Request" },
+        C2: { role: "purchase_support", action: "Accept/Reject Quote" },
+        C3: { role: "purchase_support", action: "Get Same Warehouse Quote" },
+        C4: { role: "purchase_support", action: "Get Multiple Warehouse Quote" },
+        C5: { role: "warehouse", action: "Accept Same Warehouse Quote" },
+        C6: { role: "warehouse", action: "Reject Same Warehouse Quote" },
+        C7: { role: "warehouse", action: "Accept Multiple Warehouse Quote" },
+        C8: { role: "warehouse", action: "Reject Multiple Warehouse Quote" },
+        C9: { role: "purchase_support", action: "Assign Same Warehouse to Sales" },
+        C10: { role: "purchase_support", action: "Assign Multiple Warehouse to Sales" },
+        C11: { role: "sales_support", action: "Edit Rate and Add Margin (Same)" },
+        C12: { role: "sales_support", action: "Select Best Warehouse and Edit Rate" },
+        C13: { role: "customer", action: "Agree with Same Warehouse Rate" },
+        C14: { role: "customer", action: "Reject Same Warehouse Rate" },
+        C15: { role: "customer", action: "Agree with Multiple Warehouse Rate" },
+        C16: { role: "customer", action: "Reject Multiple Warehouse Rate" },
+        C17: { role: "supervisor", action: "Accept Same Warehouse Booking" },
+        C18: { role: "supervisor", action: "Reject Same Warehouse Booking" },
+        C19: { role: "supervisor", action: "Accept Multiple Warehouse Booking" },
+        C20: { role: "supervisor", action: "Reject Multiple Warehouse Booking" },
+        C21: { role: "customer", action: "Submit Cargo Dispatch Details" },
+        C22: { role: "supervisor", action: "Confirm CDD" },
+        C23: { role: "supervisor", action: "Reject CDD" },
+        C24: { role: "warehouse", action: "Provide Carting Details" },
+        C25: { role: "customer", action: "Submit Delivery Request" },
+        C26: { role: "supervisor", action: "Accept Delivery Request" },
+        C27: { role: "supervisor", action: "Reject Delivery Request" },
+        C28: { role: "customer", action: "Send Invoice Request" },
+        C29: { role: "warehouse", action: "Accept Invoice Request" },
+        C30: { role: "warehouse", action: "Reject Invoice Request" },
+        C31: { role: "customer", action: "Submit Payment Details" },
+        C32: { role: "supervisor", action: "Issue Delivery Order" },
+        C33: { role: "warehouse", action: "Generate Delivery Report" }
+      };
+
+      const nextStepInfo = stepInfo[nextStep as keyof typeof stepInfo];
+      if (!nextStepInfo) return false;
+
+      const subject = `Workflow Action Required - Quote ${quoteId}`;
+      const message = `A workflow action is required for quote ${quoteId}. Current step: ${currentStep}, Next step: ${nextStep}`;
+      
+      const data = {
+        "Quote ID": quoteId,
+        "Current Step": currentStep,
+        "Next Step": nextStep,
+        "Action Required": nextStepInfo.action,
+        ...(customerInfo && { "Customer": `${customerInfo.firstName} ${customerInfo.lastName}` }),
+        ...(warehouseInfo && { "Warehouse": warehouseInfo.name })
+      };
+
+      return await this.sendNotificationToRole(nextStepInfo.role, subject, message, data);
+    } catch (error) {
+      console.error("Failed to send workflow notification:", error);
+      return false;
+    }
+  }
+
+  async sendNotificationToUser(userId: string, subject: string, message: string, data?: any): Promise<boolean> {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+
+      if (!user || !user.isActive) {
+        return false;
+      }
+
+      return await this.sendEmail({
+        to: user.email,
+        subject: subject,
+        html: `
+          <h2>${subject}</h2>
+          <p>${message}</p>
+          ${data ? `
+            <h3>Details:</h3>
+            <ul>
+              ${Object.entries(data).map(([key, value]) => `<li><strong>${key}:</strong> ${value}</li>`).join('')}
+            </ul>
+          ` : ''}
+          <p>Please log in to your dashboard to take the required action.</p>
+        `
+      });
+    } catch (error) {
+      console.error("Failed to send notification to user:", error);
+      return false;
+    }
   }
 }
 

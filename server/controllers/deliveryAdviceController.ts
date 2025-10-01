@@ -6,7 +6,32 @@ import { prisma } from "../config/prisma";
 export class DeliveryAdviceController {
   async createDeliveryAdvice(req: AuthenticatedRequest, res: Response) {
     try {
-      const { bookingId, deliveryAddress, preferredDate, urgency, instructions } = req.body;
+      const { 
+        bookingId, 
+        deliveryAddress, 
+        preferredDate, 
+        urgency, 
+        instructions,
+        bookingNumber,
+        availableQuantity,
+        requiredQuantity,
+        billingParty,
+        remarks
+      } = req.body;
+
+      if (!bookingId) {
+        return res.status(400).json({ message: "bookingId is required" });
+      }
+      if (!deliveryAddress || typeof deliveryAddress !== "string" || deliveryAddress.trim().length === 0) {
+        return res.status(400).json({ message: "deliveryAddress is required" });
+      }
+      if (!preferredDate) {
+        return res.status(400).json({ message: "preferredDate is required" });
+      }
+      const preferredAt = new Date(preferredDate);
+      if (isNaN(preferredAt.getTime())) {
+        return res.status(400).json({ message: "preferredDate must be a valid date" });
+      }
       
       // Only supervisor can create delivery advice
       if ((req.user! as any).role !== "supervisor") {
@@ -31,9 +56,14 @@ export class DeliveryAdviceController {
           bookingId,
           customerId: booking.customerId,
           deliveryAddress,
-          preferredDate: new Date(preferredDate),
+          preferredDate: preferredAt,
           urgency: urgency || "standard",
           instructions,
+          bookingNumber: bookingNumber || booking.id,
+          availableQuantity: typeof availableQuantity === "number" ? availableQuantity : undefined,
+          requiredQuantity: typeof requiredQuantity === "number" ? requiredQuantity : undefined,
+          billingParty: billingParty || undefined,
+          remarks: remarks || undefined,
           status: "created",
         },
         include: {
@@ -47,22 +77,27 @@ export class DeliveryAdviceController {
         }
       });
 
-      // Send notification to customer and warehouse
-      await notificationService.sendEmail({
+      // Send notification to customer and warehouse (non-blocking)
+      notificationService.sendEmail({
         to: (deliveryAdvice.customer as any).email,
         subject: `Delivery Advice Created - Booking ${bookingId}`,
         html: `
           <h2>Delivery Advice Created</h2>
           <p>Delivery advice has been created for your booking.</p>
           <p>Booking ID: ${bookingId}</p>
+          <p>Booking Number: ${deliveryAdvice.bookingNumber || bookingId}</p>
           <p>Delivery Address: ${deliveryAddress}</p>
           <p>Preferred Date: ${new Date(preferredDate).toLocaleDateString()}</p>
           <p>Urgency: ${urgency || 'Standard'}</p>
           <p>Instructions: ${instructions || 'None'}</p>
+          <p>Available Qty: ${deliveryAdvice.availableQuantity ?? 'NA'}</p>
+          <p>Required Qty: ${deliveryAdvice.requiredQuantity ?? 'NA'}</p>
+          <p>Billing Party: ${deliveryAdvice.billingParty ?? 'NA'}</p>
+          <p>Remarks: ${deliveryAdvice.remarks ?? 'NA'}</p>
         `,
-      });
+      }).catch(() => {});
 
-      await notificationService.sendEmail({
+      notificationService.sendEmail({
         to: "warehouse@example.com", // TODO: Get actual warehouse email
         subject: `Delivery Advice Created - Booking ${bookingId}`,
         html: `
@@ -73,8 +108,13 @@ export class DeliveryAdviceController {
           <p>Preferred Date: ${new Date(preferredDate).toLocaleDateString()}</p>
           <p>Urgency: ${urgency || 'Standard'}</p>
           <p>Instructions: ${instructions || 'None'}</p>
+          <p>Booking Number: ${deliveryAdvice.bookingNumber || bookingId}</p>
+          <p>Available Qty: ${deliveryAdvice.availableQuantity ?? 'NA'}</p>
+          <p>Required Qty: ${deliveryAdvice.requiredQuantity ?? 'NA'}</p>
+          <p>Billing Party: ${deliveryAdvice.billingParty ?? 'NA'}</p>
+          <p>Remarks: ${deliveryAdvice.remarks ?? 'NA'}</p>
         `,
-      });
+      }).catch(() => {});
 
       res.status(201).json(deliveryAdvice);
       return;
@@ -165,7 +205,16 @@ export class DeliveryAdviceController {
       
       const deliveryAdvice = await prisma.deliveryAdvice.update({
         where: { id },
-        data: { ...updateData, updatedAt: new Date() },
+        data: { 
+          ...updateData,
+          // allow partial updates of new fields as well
+          bookingNumber: updateData.bookingNumber ?? undefined,
+          availableQuantity: typeof updateData.availableQuantity === "number" ? updateData.availableQuantity : undefined,
+          requiredQuantity: typeof updateData.requiredQuantity === "number" ? updateData.requiredQuantity : undefined,
+          billingParty: updateData.billingParty ?? undefined,
+          remarks: updateData.remarks ?? undefined,
+          updatedAt: new Date() 
+        },
         include: {
           booking: { 
             include: { 

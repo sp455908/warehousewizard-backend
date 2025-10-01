@@ -51,16 +51,20 @@ export class BookingController {
   async getBookings(req: AuthenticatedRequest, res: Response) {
     try {
       const user = req.user! as any;
+      console.log("getBookings - User:", user);
       let where: any = {};
       if (user.role === "customer") {
         where.customerId = user.id || user._id?.toString();
       } else if (user.role === "supervisor") {
         where.status = "pending";
+        console.log("getBookings - Supervisor query, looking for pending bookings");
+      } else {
+        console.log("getBookings - Other role query:", user.role);
       }
       
       let bookings;
       if (user.role === "customer") {
-        // Exclude pricing for customers
+        // Include pricing for customers to see their own booking costs
         bookings = await prisma.booking.findMany({
           where,
           orderBy: { createdAt: 'desc' },
@@ -72,7 +76,7 @@ export class BookingController {
             status: true,
             startDate: true,
             endDate: true,
-            // Exclude totalAmount for customers
+            totalAmount: true, // Include totalAmount for customers
             approvedById: true,
             createdAt: true,
             updatedAt: true,
@@ -87,7 +91,7 @@ export class BookingController {
                 duration: true,
                 specialRequirements: true,
                 status: true,
-                // Exclude finalPrice for customers
+                finalPrice: true, // Include finalPrice for customers
                 createdAt: true,
                 updatedAt: true
               }
@@ -97,6 +101,19 @@ export class BookingController {
         });
       } else {
         // Include all fields for other roles
+        console.log("getBookings - Query where clause:", where);
+        // For debugging, let's also check all bookings
+        const allBookings = await prisma.booking.findMany({
+          orderBy: { createdAt: 'desc' },
+          include: {
+            customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+            warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
+            quote: true,
+            approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } }
+          }
+        });
+        console.log("getBookings - All bookings in database:", allBookings.length, allBookings);
+        
         bookings = await prisma.booking.findMany({
           where,
           orderBy: { createdAt: 'desc' },
@@ -109,6 +126,7 @@ export class BookingController {
         });
       }
 
+      console.log("getBookings - Found bookings:", bookings.length, bookings);
       res.json(bookings);
       return;
     } catch (error) {
@@ -175,8 +193,7 @@ export class BookingController {
       // Send notification to warehouse
       await notificationService.sendQuoteRequestNotification(
         updatedQuote.customer?.email || "",
-        updatedQuote.id,
-        remark
+        updatedQuote.id
       );
 
       res.json({ message: "Quote request processed successfully", quote: updatedQuote });
@@ -193,8 +210,8 @@ export class BookingController {
         where: { id },
         include: {
           customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true, features: true, id: true } },
-          quote: true,
+          warehouse: { select: { name: true, location: true, city: true, state: true, features: true, id: true, availableSpace: true, totalSpace: true } },
+          quote: { select: { id: true, storageType: true, requiredSpace: true, preferredLocation: true, duration: true, specialRequirements: true, status: true, finalPrice: true, createdAt: true, updatedAt: true } },
           approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } }
         }
       });
@@ -320,6 +337,57 @@ export class BookingController {
     }
   }
 
+  // Supervisor: confirm booking by quote id (create if missing)
+  async confirmByQuoteId(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id: quoteId } = req.params as any;
+      const supervisorId = (req.user as any)?.id || (req.user as any)?._id?.toString();
+
+      // Find existing booking for this quote
+      let booking = await prisma.booking.findFirst({ where: { quoteId } });
+
+      if (!booking) {
+        // Create booking from quote if missing
+        const quote = await prisma.quote.findUnique({ where: { id: quoteId } });
+        if (!quote) return res.status(404).json({ message: "Quote not found" });
+        if (!quote.warehouseId) return res.status(400).json({ message: "Warehouse must be assigned before booking" });
+
+        booking = await prisma.booking.create({
+          data: {
+            quoteId,
+            customerId: quote.customerId,
+            warehouseId: quote.warehouseId,
+            status: 'pending',
+            startDate: new Date(),
+            endDate: new Date(Date.now() + 30 * 24 * 3600 * 1000),
+            totalAmount: quote.finalPrice || 0,
+          }
+        });
+      }
+
+      // Confirm the booking
+      const updated = await prisma.booking.update({
+        where: { id: booking.id },
+        data: {
+          status: 'confirmed',
+          approvedById: supervisorId,
+          updatedAt: new Date() as any
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
+          quote: true
+        }
+      });
+
+      // Reflect on quote
+      await prisma.quote.update({ where: { id: quoteId }, data: { status: 'booking_confirmed' } });
+
+      return res.json(updated);
+    } catch (error) {
+      return res.status(500).json({ message: 'Failed to confirm booking by quote', error });
+    }
+  }
+
   async approveBooking(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
@@ -345,7 +413,7 @@ export class BookingController {
     }
   }
 
-  // Supervisor booking approval/rejection
+  // Supervisor booking approval/rejection (Step 8)
   async approveBookingBySupervisor(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
@@ -359,7 +427,7 @@ export class BookingController {
       const booking = await prisma.booking.update({
         where: { id },
         data: {
-          status: "confirmed",
+          status: "confirmed", // Step 8 - Supervisor confirmed
           approvedById: supervisorId,
           updatedAt: new Date() as any
         },
@@ -374,22 +442,37 @@ export class BookingController {
         return res.status(404).json({ message: "Booking not found" });
       }
 
-      // Update quote status to booking confirmed
+      // Update quote status to booking confirmed (Step 8)
       await prisma.quote.update({
         where: { id: (booking as any).quoteId },
         data: { status: "booking_confirmed" }
       });
 
-      // Send confirmation notification
+      // Send confirmation notifications (Step 8 → Steps 9 & 10)
+      // Notify customer (Step 9)
       await notificationService.sendEmail({
         to: (booking as any).customer.email,
-        subject: "Booking Approved - Warehouse Wizard",
+        subject: "Booking Confirmed - Warehouse Wizard",
         html: `
-          <h2>Booking Approved</h2>
-          <p>Your booking has been approved by the supervisor.</p>
+          <h2>Booking Confirmed</h2>
+          <p>Your booking has been confirmed by the supervisor.</p>
           <p>Booking ID: ${booking.id}</p>
-          <p>Warehouse: ${(booking.warehouse as any).name}</p>
+          <p>Warehouse: ${(booking as any).warehouse?.name || 'Unknown'}</p>
           <p>You can now proceed with cargo dispatch details.</p>
+        `,
+      });
+
+      // Notify warehouse (Step 10)
+      await notificationService.sendEmail({
+        to: "warehouse@example.com", // TODO: Get actual warehouse email
+        subject: `Booking Confirmed - ${(booking as any).warehouse?.name || 'Warehouse'}`,
+        html: `
+          <h2>Booking Confirmed</h2>
+          <p>A new booking has been confirmed for your warehouse.</p>
+          <p>Booking ID: ${booking.id}</p>
+          <p>Customer: ${(booking as any).customer.firstName} ${(booking as any).customer.lastName}</p>
+          <p>Total Amount: ₹${booking.totalAmount?.toLocaleString() || 'N/A'}</p>
+          <p>Please prepare for cargo arrival.</p>
         `,
       });
 
@@ -502,11 +585,29 @@ export class BookingController {
         include: {
           customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
           warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
-          approvedBy: { select: { firstName: true, lastName: true, id: true } }
+          approvedBy: { select: { firstName: true, lastName: true, id: true } },
+          quote: { select: { storageType: true, requiredSpace: true, finalPrice: true } }
         }
       });
 
-      res.json(bookings);
+      // Transform the data to match frontend expectations
+      const transformedBookings = bookings.map(booking => ({
+        id: booking.id,
+        customerName: `${booking.customer.firstName} ${booking.customer.lastName}`,
+        customerEmail: booking.customer.email,
+        storageType: booking.quote?.storageType || 'Unknown',
+        requiredSpace: booking.quote?.requiredSpace || 0,
+        assignedWarehouse: booking.warehouse?.name || 'Not assigned',
+        warehouseLocation: `${booking.warehouse?.city || ''}, ${booking.warehouse?.state || ''}`.trim(),
+        confirmedDate: booking.createdAt.toISOString(),
+        startDate: booking.startDate.toISOString(),
+        endDate: booking.endDate.toISOString(),
+        quoteAmount: booking.totalAmount,
+        status: booking.status,
+        daysRemaining: Math.ceil((new Date(booking.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+      }));
+
+      res.json(transformedBookings);
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to fetch confirmed bookings", error });
@@ -555,114 +656,6 @@ export class BookingController {
     }
   }
 
-  // Supervisor booking approval/rejection
-  async approveBookingBySupervisor(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const supervisorId = (req.user as any)?.id || (req.user as any)?._id?.toString();
-      
-      // Only supervisor can approve bookings
-      if ((req.user! as any).role !== "supervisor") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-      
-      const booking = await prisma.booking.update({
-        where: { id },
-        data: {
-          status: "confirmed",
-          approvedById: supervisorId,
-          updatedAt: new Date() as any
-        },
-        include: { 
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          quote: true,
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
-        }
-      });
-
-      if (!booking) {
-        return res.status(404).json({ message: "Booking not found" });
-      }
-
-      // Update quote status to booking confirmed
-      await prisma.quote.update({
-        where: { id: (booking as any).quoteId },
-        data: { status: "booking_confirmed" }
-      });
-
-      // Send confirmation notification
-      await notificationService.sendEmail({
-        to: (booking.customer as any).email,
-        subject: "Booking Approved - Warehouse Wizard",
-        html: `
-          <h2>Booking Approved</h2>
-          <p>Your booking has been approved by the supervisor.</p>
-          <p>Booking ID: ${booking.id}</p>
-          <p>Warehouse: ${(booking.warehouse as any).name}</p>
-          <p>You can now proceed with cargo dispatch details.</p>
-        `,
-      });
-
-      res.json(booking);
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to approve booking", error });
-    }
-  }
-
-  async rejectBookingBySupervisor(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const { reason } = req.body;
-      
-      // Only supervisor can reject bookings
-      if ((req.user! as any).role !== "supervisor") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-      
-      const booking = await prisma.booking.update({
-        where: { id },
-        data: { 
-          status: "cancelled", 
-          updatedAt: new Date() as any 
-        },
-        include: { 
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
-        }
-      });
-
-      if (!booking) {
-        return res.status(404).json({ message: "Booking not found" });
-      }
-
-      // Update quote status to rejected
-      await prisma.quote.update({
-        where: { id: (booking as any).quoteId },
-        data: { 
-          status: "rejected",
-          specialRequirements: reason ? `Booking rejected: ${reason}` : "Booking rejected by supervisor"
-        }
-      });
-
-      // Send rejection notification
-      await notificationService.sendEmail({
-        to: (booking.customer as any).email,
-        subject: "Booking Rejected - Warehouse Wizard",
-        html: `
-          <h2>Booking Rejected</h2>
-          <p>Your booking (ID: ${booking.id}) has been rejected by the supervisor.</p>
-          ${reason ? `<p>Reason: ${reason}</p>` : ''}
-          <p>If you have any questions, please contact our support team.</p>
-        `,
-      });
-
-      res.json(booking);
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to reject booking", error });
-    }
-  }
 }
 
 export const bookingController = new BookingController();

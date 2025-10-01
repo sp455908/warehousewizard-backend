@@ -160,10 +160,10 @@ export class InvoiceController {
         to: (invoice as any).customer.email,
         subject: `Invoice ${invoice.invoiceNumber} - Warehouse Wizard`,
         html: `
-          <h2>Invoice ${invoice.invoiceNumber}</h2>
+          <h2>Invoice ₹{invoice.invoiceNumber}</h2>
           <p>Dear ${(invoice as any).customer.firstName} ${(invoice as any).customer.lastName},</p>
           <p>Please find your invoice details below:</p>
-          <p>Amount: $${invoice.amount}</p>
+          <p>Amount: ₹{invoice.amount}</p>
           <p>Due Date: ${new Date(invoice.dueDate).toLocaleDateString()}</p>
           <p>Please log in to your dashboard to view the complete invoice and make payment.</p>
         `,
@@ -205,7 +205,7 @@ export class InvoiceController {
           <h2>Payment Received</h2>
           <p>Dear ${(invoice as any).customer.firstName} ${(invoice as any).customer.lastName},</p>
           <p>We have received your payment for invoice ${invoice.invoiceNumber}.</p>
-          <p>Amount Paid: $${invoice.amount}</p>
+          <p>Amount Paid: ₹{invoice.amount}</p>
           <p>Payment Date: ${new Date().toLocaleDateString()}</p>
           <p>Thank you for your business!</p>
         `,
@@ -245,7 +245,7 @@ export class InvoiceController {
           <h2>Payment Overdue</h2>
           <p>Dear ${(invoice as any).customer.firstName} ${(invoice as any).customer.lastName},</p>
           <p>Your invoice ${invoice.invoiceNumber} is now overdue.</p>
-          <p>Amount Due: $${invoice.amount}</p>
+          <p>Amount Due: ₹{invoice.amount}</p>
           <p>Original Due Date: ${new Date(invoice.dueDate).toLocaleDateString()}</p>
           <p>Please make payment as soon as possible to avoid any service interruption.</p>
         `,
@@ -295,7 +295,7 @@ export class InvoiceController {
           <h2>Payment Successful</h2>
           <p>Your payment has been processed successfully.</p>
           <p>Invoice: ${invoice.invoiceNumber}</p>
-          <p>Amount: $${invoice.amount}</p>
+          <p>Amount: ₹{invoice.amount}</p>
           <p>Payment Method: ${paymentMethod}</p>
         `,
       });
@@ -529,7 +529,7 @@ export class InvoiceController {
           <h2>Payment Received</h2>
           <p>Thank you for your payment.</p>
           <p>Invoice Number: ${updatedInvoice.invoiceNumber}</p>
-          <p>Amount: $${updatedInvoice.amount}</p>
+          <p>Amount: ₹{updatedInvoice.amount}</p>
           <p>Payment Method: ${paymentMethod}</p>
           <p>Transaction ID: ${transactionId}</p>
           <p>Payment Date: ${new Date(paymentDate || new Date()).toLocaleDateString()}</p>
@@ -543,154 +543,9 @@ export class InvoiceController {
     }
   }
 
-  // Customer invoice request
-  async requestInvoice(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { bookingId, amount, dueDate } = req.body;
-      const customerId = (req.user as any).id;
-      
-      // Check if booking exists and belongs to customer
-      const booking = await prisma.booking.findFirst({
-        where: { 
-          id: bookingId, 
-          customerId,
-          status: "confirmed"
-        },
-        include: { customer: true, warehouse: true }
-      });
+  
 
-      if (!booking) {
-        return res.status(404).json({ message: "Confirmed booking not found" });
-      }
-
-      // Generate invoice number
-      const invoiceNumber = await this.generateInvoiceNumber();
-      
-      const invoice = await prisma.invoice.create({
-        data: {
-          bookingId,
-          customerId,
-          invoiceNumber,
-          amount: amount || booking.totalAmount,
-          status: "draft",
-          dueDate: new Date(dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)) // 30 days from now
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          booking: { 
-            include: { 
-              warehouse: { select: { name: true, location: true } }
-            }
-          }
-        }
-      });
-
-      // Send notification to warehouse
-      await notificationService.sendEmail({
-        to: "warehouse@example.com", // TODO: Get actual warehouse email
-        subject: `Invoice Request - Booking ${bookingId}`,
-        html: `
-          <h2>Invoice Request</h2>
-          <p>Customer has requested an invoice for their confirmed booking.</p>
-          <p>Booking ID: ${bookingId}</p>
-          <p>Customer: ${booking.customer.firstName} ${booking.customer.lastName}</p>
-          <p>Amount: $${amount || booking.totalAmount}</p>
-          <p>Due Date: ${new Date(dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)).toLocaleDateString()}</p>
-          <p>Please review and process the invoice request.</p>
-        `,
-      });
-
-      res.status(201).json({ message: "Invoice request submitted successfully", invoice });
-      return;
-    } catch (error) {
-      console.error("Invoice request error:", error);
-      return res.status(500).json({ message: "Failed to request invoice", error });
-    }
-  }
-
-  // Customer payment details submission
-  async submitPaymentDetails(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { invoiceId, paymentMethod, transactionId, paymentAmount, paymentDate } = req.body;
-      const customerId = (req.user as any).id;
-      
-      // Check if invoice exists and belongs to customer
-      const invoice = await prisma.invoice.findFirst({
-        where: { 
-          id: invoiceId, 
-          customerId
-        },
-        include: { customer: true, booking: true }
-      });
-
-      if (!invoice) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-
-      // Update invoice with payment details
-      const updatedInvoice = await prisma.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          status: "paid",
-          paidAt: new Date(paymentDate || new Date()),
-          // Store payment details in specialRequirements as JSON
-          specialRequirements: JSON.stringify({
-            paymentMethod,
-            transactionId,
-            paymentAmount,
-            paymentDate: paymentDate || new Date(),
-            submittedBy: "customer"
-          })
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          booking: { 
-            include: { 
-              warehouse: { select: { name: true, location: true } }
-            }
-          }
-        }
-      });
-
-      // Send confirmation notification
-      await notificationService.sendEmail({
-        to: invoice.customer.email,
-        subject: `Payment Confirmed - Invoice ${invoice.invoiceNumber}`,
-        html: `
-          <h2>Payment Confirmed</h2>
-          <p>Your payment has been successfully submitted and confirmed.</p>
-          <p>Invoice Number: ${invoice.invoiceNumber}</p>
-          <p>Amount: $${paymentAmount || invoice.amount}</p>
-          <p>Payment Method: ${paymentMethod}</p>
-          <p>Transaction ID: ${transactionId}</p>
-          <p>Payment Date: ${new Date(paymentDate || new Date()).toLocaleDateString()}</p>
-          <p>Thank you for your payment!</p>
-        `,
-      });
-
-      // Send notification to accounts
-      await notificationService.sendEmail({
-        to: "accounts@example.com", // TODO: Get actual accounts email
-        subject: `Payment Received - Invoice ${invoice.invoiceNumber}`,
-        html: `
-          <h2>Payment Received</h2>
-          <p>Customer has submitted payment details for invoice.</p>
-          <p>Invoice Number: ${invoice.invoiceNumber}</p>
-          <p>Customer: ${invoice.customer.firstName} ${invoice.customer.lastName}</p>
-          <p>Amount: $${paymentAmount || invoice.amount}</p>
-          <p>Payment Method: ${paymentMethod}</p>
-          <p>Transaction ID: ${transactionId}</p>
-          <p>Please verify and process the payment.</p>
-        `,
-      });
-
-      res.json({ message: "Payment details submitted successfully", invoice: updatedInvoice });
-      return;
-    } catch (error) {
-      console.error("Payment submission error:", error);
-      return res.status(500).json({ message: "Failed to submit payment details", error });
-    }
-  }
+  
 
   private async generateInvoiceNumber(): Promise<string> {
     const prefix = "INV";
@@ -746,10 +601,7 @@ export class InvoiceController {
       const updatedInvoice = await prisma.invoice.update({
         where: { id },
         data: { 
-          status: "accepted",
-          specialRequirements: invoiceDetails ? 
-            `${invoice.specialRequirements || ''}\nInvoice Details: ${JSON.stringify(invoiceDetails)}` : 
-            invoice.specialRequirements
+          status: "sent",
         },
         include: {
           customer: { select: { firstName: true, lastName: true, email: true, company: true } },
@@ -769,7 +621,7 @@ export class InvoiceController {
           <h2>Invoice Request Accepted</h2>
           <p>Your invoice request has been accepted and is being processed.</p>
           <p>Invoice Number: <strong>${invoice.invoiceNumber}</strong></p>
-          <p>Amount: $${invoice.amount?.toFixed(2) || 'TBD'}</p>
+          <p>Amount: ₹{invoice.amount?.toFixed(2) || 'TBD'}</p>
           <p>Status: Accepted and ready for payment</p>
           <p>Please proceed with payment submission.</p>
         `
@@ -783,7 +635,7 @@ export class InvoiceController {
           <h2>Invoice Request Accepted</h2>
           <p>Customer: ${invoice.customer?.firstName} ${invoice.customer?.lastName}</p>
           <p>Invoice Number: ${invoice.invoiceNumber}</p>
-          <p>Amount: $${invoice.amount?.toFixed(2) || 'TBD'}</p>
+          <p>Amount: ₹{invoice.amount?.toFixed(2) || 'TBD'}</p>
           <p>Please prepare for payment processing.</p>
         `
       });
@@ -820,8 +672,7 @@ export class InvoiceController {
       const updatedInvoice = await prisma.invoice.update({
         where: { id },
         data: { 
-          status: "rejected",
-          specialRequirements: reason ? `${invoice.specialRequirements || ''}\nRejection Reason: ${reason}` : invoice.specialRequirements
+          status: "cancelled",
         },
         include: {
           customer: { select: { firstName: true, lastName: true, email: true, company: true } }

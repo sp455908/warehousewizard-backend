@@ -7,6 +7,8 @@ export class CargoController {
   async createCargoDispatch(req: AuthenticatedRequest, res: Response) {
     try {
       const cargoData = req.body;
+      console.log("[DEBUG] Creating cargo dispatch with data:", cargoData);
+      
       const cargo = await prisma.cargoDispatchDetail.create({ data: {
         bookingId: cargoData.bookingId,
         itemDescription: cargoData.itemDescription,
@@ -17,9 +19,11 @@ export class CargoController {
         status: cargoData.status || 'submitted',
       } });
 
+      console.log("[DEBUG] Cargo dispatch created successfully:", cargo);
       res.status(201).json(cargo);
       return;
     } catch (error) {
+      console.log("[DEBUG] Error creating cargo dispatch:", error);
       return res.status(500).json({ message: "Failed to create cargo dispatch", error });
     }
   }
@@ -29,14 +33,19 @@ export class CargoController {
       const user = req.user! as any;
       const { bookingId, status } = req.query;
       
+      console.log("[DEBUG] Getting cargo dispatches for user role:", user.role);
+      
       let filter: any = {};
       
       if (bookingId) {
         filter.bookingId = bookingId as string;
       }
       
-      if (status) {
+      if (status && status !== "all") {
         filter.status = status as string;
+      } else if (status === "all") {
+        // Don't filter by status - get all cargo dispatches
+        // filter.status is not set, so all statuses will be returned
       } else {
         // Default filter based on role
         if (user.role === "supervisor") {
@@ -44,18 +53,43 @@ export class CargoController {
         }
       }
 
+      console.log("[DEBUG] Filter for cargo dispatches:", filter);
+
       const cargoItems = await prisma.cargoDispatchDetail.findMany({
         where: filter,
         orderBy: { createdAt: 'desc' },
         include: {
           approvedBy: { select: { firstName: true, lastName: true, email: true, id: true } },
-          booking: { select: { id: true, customerId: true, warehouseId: true } }
+          booking: { 
+            select: { 
+              id: true, 
+              customerId: true, 
+              warehouseId: true,
+              customer: { 
+                select: { 
+                  firstName: true, 
+                  lastName: true, 
+                  email: true, 
+                  company: true 
+                } 
+              },
+              warehouse: { 
+                select: { 
+                  name: true, 
+                  location: true, 
+                  city: true 
+                } 
+              }
+            } 
+          }
         }
       });
 
+      console.log("[DEBUG] Found cargo dispatches:", cargoItems.length);
       res.json(cargoItems);
       return;
     } catch (error) {
+      console.log("[DEBUG] Error fetching cargo dispatches:", error);
       return res.status(500).json({ message: "Failed to fetch cargo dispatches", error });
     }
   }

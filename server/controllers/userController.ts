@@ -6,6 +6,31 @@ import { notificationService } from "../services/notificationService";
 import { UserRole } from "@prisma/client";
 
 export class UserController {
+  // Lightweight list of active customers for admin panels
+  async getActiveCustomersList(req: AuthenticatedRequest, res: Response) {
+    try {
+      const customers = await prisma.user.findMany({
+        where: { role: "customer", isActive: true },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          company: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: [
+          { firstName: 'asc' },
+          { lastName: 'asc' },
+        ],
+      });
+
+      return res.json(customers);
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to fetch customers", error });
+    }
+  }
   async getProfile(req: AuthenticatedRequest, res: Response) {
     try {
       const user = req.user!;
@@ -557,6 +582,33 @@ export class UserController {
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to fetch roles", error });
+    }
+  }
+
+  async getDeniedCustomers(req: AuthenticatedRequest, res: Response) {
+    try {
+      const deniedCustomers = await prisma.user.findMany({
+        where: {
+          role: "customer",
+          isActive: false
+        },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          mobile: true,
+          company: true,
+          createdAt: true,
+          updatedAt: true
+        },
+        orderBy: { updatedAt: 'desc' }
+      });
+
+      res.json(deniedCustomers);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to fetch denied customers", error });
     }
   }
 }

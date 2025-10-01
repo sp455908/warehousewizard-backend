@@ -14,7 +14,7 @@ const insertQuoteSchema = z.object({
   preferredLocation: z.string().min(1),
   duration: z.string().min(1),
   specialRequirements: z.string().optional(),
-  status: z.enum(["pending", "processing", "quoted", "approved", "rejected"]).default("pending"),
+  status: z.enum(["pending", "processing", "quoted", "customer_confirmation_pending", "booking_confirmed", "approved", "rejected"]).default("pending"),
   assignedTo: z.string().optional(),
   finalPrice: z.number().optional(),
   warehouseId: z.string().optional(),
@@ -86,6 +86,12 @@ router.get(
 // Update quote (various roles can update different fields)
 router.put("/:id", quoteController.updateQuote);
 
+// Get pending warehouse quotes
+router.get("/pending-warehouse-quotes", 
+  authorizeRoles("purchase_support", "admin"), 
+  quoteController.getPendingWarehouseQuotes
+);
+
 // Purchase support actions
 router.post(
   "/:id/assign",
@@ -113,6 +119,13 @@ router.post(
   quoteController.rejectQuote
 );
 
+// Supervisor approval to move quoted -> customer_confirmation_pending
+router.post(
+  "/:id/supervisor-approve",
+  authorizeRoles("supervisor", "admin"),
+  quoteController.supervisorApproveQuote
+);
+
 // Customer quote confirmation
 router.post(
   "/:id/confirm-by-customer",
@@ -127,24 +140,28 @@ router.put(
   quoteController.editQuoteRate
 );
 
-// Purchase Panel: Accept/Reject warehouse quotes (A2-A3)
+// Note: Warehouse quote acceptance/rejection and assignment methods 
+// are handled through the existing approve/reject/assign methods
+
+// Sales Panel: Edit rate and add margin (A11, A12)
 router.post(
-  "/:id/accept-warehouse-quote",
-  authorizeRoles("purchase_support", "admin"),
-  quoteController.acceptWarehouseQuote
+  "/:id/sales-edit-rate",
+  authorizeRoles("sales_support", "admin"),
+  quoteController.salesEditRateAndAddMargin
 );
 
+// Customer: Agree with rate (A13, A15)
 router.post(
-  "/:id/reject-warehouse-quote",
-  authorizeRoles("purchase_support", "admin"),
-  quoteController.rejectWarehouseQuote
+  "/:id/customer-agree",
+  authorizeRoles("customer"),
+  quoteController.customerAgreeWithRate
 );
 
-// Purchase Panel: Assign warehouse to sales (A9-A10)
+// Customer: Reject rate (A14, A16)
 router.post(
-  "/:id/assign-to-sales",
-  authorizeRoles("purchase_support", "admin"),
-  quoteController.assignWarehouseToSales
+  "/:id/customer-reject",
+  authorizeRoles("customer"),
+  quoteController.customerRejectRate
 );
 
 export default router;

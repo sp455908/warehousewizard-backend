@@ -30,6 +30,7 @@ router.post("/requests/:id/process", bookingController.processQuoteRequest);
 // Status-specific routes
 router.get("/status/pending", authorizeRoles("supervisor", "admin"), bookingController.getPendingBookings);
 router.get("/status/confirmed", bookingController.getConfirmedBookings);
+router.post("/confirm-by-quote/:id", authorizeRoles("supervisor", "admin"), bookingController.confirmByQuoteId.bind(bookingController));
 router.get("/status/active", bookingController.getActiveBookings);
 router.get("/status/completed", bookingController.getCompletedBookings);
 

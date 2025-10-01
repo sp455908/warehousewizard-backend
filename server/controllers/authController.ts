@@ -71,12 +71,19 @@ export class AuthController {
         `,
       });
 
-      // Return user data without password
+      // Return user data without password and set auth cookie
       const { passwordHash, ...userResponse } = user as any;
+      const isProduction = process.env.NODE_ENV === "production";
+      res.cookie("auth_token", token, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
+        maxAge: 24 * 60 * 60 * 1000,
+      });
+
       res.status(201).json({
         message: "Registration successful",
         user: userResponse,
-        token,
       });
       return;
     } catch (error) {
@@ -112,12 +119,20 @@ export class AuthController {
       // Update last login (optional)
       await prisma.user.update({ where: { id: user.id }, data: { updatedAt: new Date() } });
 
-      // Return user data without password
+      // Return user data without password and set auth cookie
       const { passwordHash: _, ...userResponse } = user as any;
+
+      const isProduction = process.env.NODE_ENV === "production";
+      res.cookie("auth_token", token, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
+        maxAge: 24 * 60 * 60 * 1000,
+      });
+
       res.json({
         message: "Login successful",
         user: userResponse,
-        token,
       });
       return;
     } catch (error) {
@@ -128,8 +143,13 @@ export class AuthController {
 
   async logout(req: Request, res: Response) {
     try {
-      // In a stateless JWT system, logout is handled client-side
-      // You could implement token blacklisting here if needed
+      // Clear auth cookie on logout
+      const isProduction = process.env.NODE_ENV === "production";
+      res.clearCookie("auth_token", {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
+      });
       return res.json({ message: "Logout successful" });
     } catch (error) {
       return res.status(500).json({ message: "Logout failed", error });

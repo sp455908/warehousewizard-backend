@@ -8,9 +8,35 @@ export class RFQController {
     try {
       const { quoteId, warehouseIds, validUntil, notes } = req.body;
       
+      // Validate required fields
+      if (!quoteId || !warehouseIds || !Array.isArray(warehouseIds) || warehouseIds.length === 0) {
+        return res.status(400).json({ 
+          message: "Missing required fields: quoteId and warehouseIds array are required" 
+        });
+      }
+      
       // Only purchase support can create RFQs
       if ((req.user! as any).role !== "purchase_support") {
         return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      // Verify quote exists
+      const quote = await prisma.quote.findUnique({
+        where: { id: quoteId },
+        include: { customer: true }
+      });
+
+      if (!quote) {
+        return res.status(404).json({ message: "Quote not found" });
+      }
+
+      // Verify warehouses exist
+      const warehouses = await prisma.warehouse.findMany({
+        where: { id: { in: warehouseIds } }
+      });
+
+      if (warehouses.length !== warehouseIds.length) {
+        return res.status(400).json({ message: "One or more warehouses not found" });
       }
 
       // Create RFQs for each warehouse
@@ -40,25 +66,34 @@ export class RFQController {
 
       // Send notifications to warehouses
       for (const rfq of rfqs) {
-        await notificationService.sendEmail({
-          to: "warehouse@example.com", // TODO: Get actual warehouse email
-          subject: `RFQ Request - Quote ${quoteId}`,
-          html: `
-            <h2>New RFQ Request</h2>
-            <p>You have received a new Request for Quote.</p>
-            <p>Quote ID: ${quoteId}</p>
-            <p>Storage Type: ${(rfq.quote as any).storageType}</p>
-            <p>Required Space: ${(rfq.quote as any).requiredSpace} sq ft</p>
-            <p>Valid Until: ${new Date(rfq.validUntil!).toLocaleDateString()}</p>
-            <p>Please respond with your rates and availability.</p>
-          `,
-        });
+        try {
+          await notificationService.sendEmail({
+            to: "warehouse@example.com", // TODO: Get actual warehouse email
+            subject: `RFQ Request - Quote ${quoteId}`,
+            html: `
+              <h2>New RFQ Request</h2>
+              <p>You have received a new Request for Quote.</p>
+              <p>Quote ID: ${quoteId}</p>
+              <p>Storage Type: ${(rfq.quote as any).storageType}</p>
+              <p>Required Space: ${(rfq.quote as any).requiredSpace} sq ft</p>
+              <p>Valid Until: ${new Date(rfq.validUntil!).toLocaleDateString()}</p>
+              <p>Please respond with your rates and availability.</p>
+            `,
+          });
+        } catch (emailError) {
+          console.error("Failed to send notification email:", emailError);
+          // Don't fail the entire request if email fails
+        }
       }
 
       res.status(201).json(rfqs);
       return;
     } catch (error) {
-      return res.status(500).json({ message: "Failed to create RFQ", error });
+      console.error("RFQ creation error:", error);
+      return res.status(500).json({ 
+        message: "Failed to create RFQ", 
+        error: error instanceof Error ? error.message : "Unknown error" 
+      });
     }
   }
 
@@ -68,9 +103,10 @@ export class RFQController {
       let rfqs;
 
       if (user.role === "warehouse") {
-        // Get RFQs for this warehouse
+        // Get RFQs for warehouse users
+        // TODO: Link warehouse users to specific warehouses; currently returns all RFQs
+        // Return all statuses so the UI can compute Pending/Responded/Expired
         rfqs = await prisma.rFQ.findMany({
-          where: { warehouseId: user.id },
           include: {
             quote: { 
               include: { 
@@ -137,6 +173,9 @@ export class RFQController {
       const { id } = req.params;
       const { baseRate, surcharges, totalRate, validityDays, capacityConfirmed, tat, notes } = req.body;
       
+      console.log(`[DEBUG] submitRate called for RFQ ${id}`);
+      console.log(`[DEBUG] Rate data:`, { baseRate, surcharges, totalRate, validityDays, capacityConfirmed, tat, notes });
+      
       // Only warehouse can submit rates
       if ((req.user! as any).role !== "warehouse") {
         return res.status(403).json({ message: "Insufficient permissions" });
@@ -148,12 +187,20 @@ export class RFQController {
         include: { warehouse: true }
       });
 
+      console.log(`[DEBUG] RFQ found:`, rfq ? `Yes, quoteId: ${rfq.quoteId}` : 'No');
+
       if (!rfq) {
         return res.status(404).json({ message: "RFQ not found" });
       }
 
       if (rfq.validUntil && new Date() > rfq.validUntil) {
         return res.status(400).json({ message: "RFQ has expired" });
+      }
+
+      // Lock: allow rate submission only when RFQ is in "sent" state
+      // Block if RFQ has already been responded/expired/cancelled
+      if (rfq.status !== "sent") {
+        return res.status(409).json({ message: "RFQ already responded; cannot submit another rate" });
       }
 
       // Create rate
@@ -184,17 +231,17 @@ export class RFQController {
         }
       });
 
-      // Update quote status if this is the first response
-      const quote = await prisma.quote.findUnique({
-        where: { id: rfq.quoteId },
-        include: { rfqs: { include: { rates: true } } }
-      });
-
-      if (quote && quote.rfqs.some(r => r.rates.length > 0)) {
-        await prisma.quote.update({
+      // Update quote status to indicate warehouse quote received
+      console.log(`Updating quote ${rfq.quoteId} status to warehouse_quote_received`);
+      try {
+        const updatedQuote = await prisma.quote.update({
           where: { id: rfq.quoteId },
           data: { status: "warehouse_quote_received" }
         });
+        console.log(`Quote ${rfq.quoteId} status updated to:`, updatedQuote.status);
+      } catch (quoteUpdateError) {
+        console.error(`Failed to update quote ${rfq.quoteId} status:`, quoteUpdateError);
+        // Don't fail the entire request if quote update fails
       }
 
       // Send notification to purchase support
@@ -204,8 +251,8 @@ export class RFQController {
         html: `
           <h2>Rate Received</h2>
           <p>Warehouse ${(rate.warehouse as any).name} has submitted a rate for RFQ ${id}.</p>
-          <p>Base Rate: $${baseRate}</p>
-          <p>Total Rate: $${totalRate}</p>
+          <p>Base Rate: ₹${baseRate}</p>
+          <p>Total Rate: ₹${totalRate}</p>
           <p>Validity: ${validityDays} days</p>
           <p>Capacity Confirmed: ${capacityConfirmed ? 'Yes' : 'No'}</p>
           <p>TAT: ${tat}</p>
@@ -341,7 +388,7 @@ export class RFQController {
       const updatedRFQ = await prisma.rFQ.update({
         where: { id },
         data: { 
-          status: "accepted",
+          status: "responded",
           notes: notes ? `${rfq.notes || ''}\nWarehouse Notes: ${notes}` : rfq.notes
         },
         include: {
@@ -404,7 +451,7 @@ export class RFQController {
       const updatedRFQ = await prisma.rFQ.update({
         where: { id },
         data: { 
-          status: "rejected",
+          status: "cancelled",
           notes: reason ? `${rfq.notes || ''}\nRejection Reason: ${reason}` : rfq.notes
         },
         include: {
@@ -434,6 +481,77 @@ export class RFQController {
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to reject RFQ", error });
+    }
+  }
+
+  // New method: Purchase Support assigns warehouse to sales (A9, A10)
+  async assignWarehouseToSales(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { rfqId, rateId, salesUserId } = req.body;
+      
+      // Only purchase support can assign to sales
+      if ((req.user! as any).role !== "purchase_support") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      // Get the rate and RFQ details
+      const rate = await prisma.rate.findUnique({
+        where: { id: rateId },
+        include: {
+          rfq: { include: { quote: true } },
+          warehouse: { select: { name: true, location: true } }
+        }
+      });
+
+      if (!rate) {
+        return res.status(404).json({ message: "Rate not found" });
+      }
+
+      // Update rate status to accepted
+      await prisma.rate.update({
+        where: { id: rateId },
+        data: { status: "accepted" }
+      });
+
+      // Fetch quote and ensure it is not already assigned/advanced
+      const quote = await prisma.quote.findUnique({ where: { id: rate.rfq.quoteId } });
+      if (!quote) {
+        return res.status(404).json({ message: "Quote not found" });
+      }
+      const assignableStatuses = ["warehouse_quote_received", "rate_confirmed"] as const;
+      if (quote.assignedTo || !assignableStatuses.includes(quote.status as any)) {
+        return res.status(409).json({ message: "Quote already assigned or progressed; cannot reassign" });
+      }
+
+      // Update quote with selected warehouse and rate
+      await prisma.quote.update({
+        where: { id: rate.rfq.quoteId },
+        data: {
+          warehouseId: rate.warehouseId,
+          finalPrice: rate.totalRate,
+          assignedTo: salesUserId,
+          status: "processing"
+        }
+      });
+
+      // Send notification to sales support
+      await notificationService.sendEmail({
+        to: "sales@example.com", // TODO: Get actual sales email
+        subject: `Warehouse Assigned - Quote ${rate.rfq.quoteId}`,
+        html: `
+          <h2>Warehouse Assigned</h2>
+          <p>A warehouse has been assigned to you for quote processing.</p>
+          <p>Quote ID: ${rate.rfq.quoteId}</p>
+          <p>Warehouse: ${(rate.warehouse as any).name}</p>
+          <p>Rate: ₹${rate.totalRate}</p>
+          <p>Please review and add margin before sending to customer.</p>
+        `,
+      });
+
+      res.json({ message: "Warehouse assigned to sales successfully" });
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to assign warehouse to sales", error });
     }
   }
 }

@@ -186,7 +186,46 @@ export class DashboardController {
 
   async getSupervisorDashboard(req: AuthenticatedRequest, res: Response) {
     try {
-      const [confirmedBookings, pendingApprovals] = await Promise.all([
+      console.log("[DEBUG] Fetching supervisor dashboard data...");
+      
+      // First, let's get all cargo dispatches with full relationships for CDD list
+      const allCargoDispatches = await prisma.cargoDispatchDetail.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: {
+          booking: {
+            include: {
+              customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+              warehouse: { select: { name: true, location: true } }
+            }
+          }
+        }
+      }).catch(error => {
+        console.log("[DEBUG] Error fetching all cargo dispatches:", error);
+        return [];
+      });
+      console.log("[DEBUG] All cargo dispatches:", allCargoDispatches.length);
+      
+      // Filter for pending cargo dispatches (submitted status)
+      const pendingCargoDispatches = allCargoDispatches.filter(cargo => cargo.status === 'submitted');
+      console.log("[DEBUG] Pending cargo dispatches:", pendingCargoDispatches.length);
+      
+      // Check if the booking exists for the cargo dispatch
+      if (allCargoDispatches.length > 0) {
+        const firstCargo = allCargoDispatches[0];
+        console.log("[DEBUG] First cargo dispatch bookingId:", firstCargo.bookingId);
+        
+        const booking = await prisma.booking.findUnique({
+          where: { id: firstCargo.bookingId }
+        });
+        console.log("[DEBUG] Booking exists:", !!booking);
+        if (booking) {
+          console.log("[DEBUG] Booking status:", booking.status);
+        }
+      }
+      
+      console.log("[DEBUG] Starting Promise.all queries...");
+      
+      const [confirmedBookings, pendingApprovals, pendingBookings] = await Promise.all([
         prisma.booking.findMany({ 
           where: { status: "confirmed" },
           orderBy: { createdAt: 'desc' },
@@ -194,24 +233,78 @@ export class DashboardController {
             customer: { select: { firstName: true, lastName: true, email: true, company: true } },
             warehouse: { select: { name: true, location: true } }
           }
+        }).catch(error => {
+          console.log("[ERROR] Error fetching confirmed bookings:", error);
+          return [];
         }),
         prisma.quote.findMany({ 
-          where: { status: "quoted" },
+          where: { status: { in: ["quoted", "customer_confirmation_pending", "customer_confirmed"] } },
           orderBy: { createdAt: 'desc' },
-          include: { customer: { select: { firstName: true, lastName: true, email: true, company: true } } }
+          include: { 
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+            warehouse: { select: { name: true, location: true } }
+          }
+        }).catch(error => {
+          console.log("[ERROR] Error fetching pending approvals:", error);
+          return [];
+        }),
+        // Step 7: Customer confirmed bookings that need supervisor approval (Step 8)
+        prisma.booking.findMany({ 
+          where: { status: "pending" },
+          orderBy: { createdAt: 'desc' },
+          include: { 
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+            warehouse: { select: { name: true, location: true } },
+            quote: { select: { id: true, status: true } }
+          }
+        }).catch(error => {
+          console.log("[ERROR] Error fetching pending bookings:", error);
+          return [];
         })
       ]);
+      
+      console.log("[DEBUG] Promise.all queries completed successfully");
 
-      const stats = await this.getSupervisorStats();
+      const stats = await this.getSupervisorStats().catch(error => {
+        console.log("[ERROR] Error fetching supervisor stats:", error);
+        return {
+          pendingApprovals: 0,
+          confirmedBookings: 0,
+          completedBookings: 0,
+          pendingCargoDispatches: 0
+        };
+      });
+
+      console.log("[DEBUG] Supervisor dashboard data:", {
+        confirmedBookings: confirmedBookings.length,
+        pendingApprovals: pendingApprovals.length,
+        pendingBookings: pendingBookings.length,
+        pendingCargoDispatches: pendingCargoDispatches.length,
+        allCargoDispatches: allCargoDispatches.length,
+        stats
+      });
 
       res.json({
         stats,
         confirmedBookings,
         pendingApprovals,
+        pendingBookings, // Step 7 confirmations awaiting supervisor approval (Step 8)
+        pendingCargoDispatches, // Step 11 CDD awaiting supervisor approval (Step 12) - filtered from allCargoDispatches
+        allCargoDispatches, // All cargo dispatches for CDD list (all statuses)
       });
       return;
     } catch (error) {
-      return res.status(500).json({ message: "Failed to fetch supervisor dashboard", error });
+      console.log("[ERROR] Supervisor dashboard error:", error);
+      console.log("[ERROR] Error details:", {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : 'Unknown'
+      });
+      return res.status(500).json({ 
+        message: "Failed to fetch supervisor dashboard", 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        details: process.env.NODE_ENV === 'development' ? error : undefined
+      });
     }
   }
 
@@ -385,7 +478,7 @@ export class DashboardController {
   }
 
   // Helper methods for stats calculation
-  private async getCustomerStats(customerId: string) {
+  async getCustomerStats(customerId: string) {
     const [quotesCount, bookingsCount, activeBookings, totalSpentResult] = await Promise.all([
       prisma.quote.count({ where: { customerId } }),
       prisma.booking.count({ where: { customerId } }),
@@ -404,7 +497,7 @@ export class DashboardController {
     };
   }
 
-  private async getPurchaseSupportStats() {
+  async getPurchaseSupportStats() {
     const [pendingQuotes, processingQuotes, guestCustomers] = await Promise.all([
       prisma.quote.count({ where: { status: "pending" } }),
       prisma.quote.count({ where: { status: "processing" } }),
@@ -418,7 +511,7 @@ export class DashboardController {
     };
   }
 
-  private async getSalesSupportStats() {
+  async getSalesSupportStats() {
     const [quotedQuotes, approvedQuotes, rejectedQuotes] = await Promise.all([
       prisma.quote.count({ where: { status: "quoted" } }),
       prisma.quote.count({ where: { status: "approved" } }),
@@ -432,7 +525,7 @@ export class DashboardController {
     };
   }
 
-  private async getWarehouseStats(warehouseId: string) {
+  async getWarehouseStats(warehouseId: string) {
     const [assignedQuotes, confirmedBookings, activeBookings] = await Promise.all([
       prisma.quote.count({ where: { assignedTo: warehouseId } }),
       prisma.booking.count({ where: { status: "confirmed" } }),
@@ -446,21 +539,23 @@ export class DashboardController {
     };
   }
 
-  private async getSupervisorStats() {
-    const [pendingApprovals, confirmedBookings, completedBookings] = await Promise.all([
-      prisma.quote.count({ where: { status: "quoted" } }),
+  async getSupervisorStats() {
+    const [pendingApprovals, confirmedBookings, completedBookings, pendingCargoDispatches] = await Promise.all([
+      prisma.quote.count({ where: { status: { in: ["quoted", "customer_confirmation_pending", "customer_confirmed"] } } }),
       prisma.booking.count({ where: { status: "confirmed" } }),
-      prisma.booking.count({ where: { status: "completed" } })
+      prisma.booking.count({ where: { status: "completed" } }),
+      prisma.cargoDispatchDetail.count({ where: { status: "submitted" } })
     ]);
 
     return {
       pendingApprovals,
       confirmedBookings,
-      completedBookings
+      completedBookings,
+      pendingCargoDispatches
     };
   }
 
-  private async getAccountsStats() {
+  async getAccountsStats() {
     const [pendingInvoices, paidInvoices, overdueInvoices, totalRevenueResult] = await Promise.all([
       prisma.invoice.count({ where: { status: "sent" } }),
       prisma.invoice.count({ where: { status: "paid" } }),
@@ -479,7 +574,7 @@ export class DashboardController {
     };
   }
 
-  private async getAdminStats() {
+  async getAdminStats() {
     const [totalUsers, totalWarehouses, totalQuotes, totalBookings] = await Promise.all([
       prisma.user.count({ where: { isActive: true } }),
       prisma.warehouse.count({ where: { isActive: true } }),
@@ -495,7 +590,7 @@ export class DashboardController {
     };
   }
 
-  private async getSystemStats() {
+  async getSystemStats() {
     const [usersByRole, warehousesByType] = await Promise.all([
       prisma.user.groupBy({
         by: ['role'],

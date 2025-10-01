@@ -4,38 +4,21 @@ import { authenticateToken, authorizeRoles } from "../middleware/auth";
 
 const router = Router();
 
-// Apply authentication to all routes
+// All routes require authentication
 router.use(authenticateToken);
 
-// Delivery Report Management Routes
-router.post("/", 
-  authorizeRoles("warehouse"), 
-  deliveryReportController.createDeliveryReport
-);
+// Warehouse routes
+router.post("/", authorizeRoles("warehouse"), deliveryReportController.createDeliveryReport);
+router.get("/warehouse", authorizeRoles("warehouse"), deliveryReportController.getWarehouseDeliveryReports);
+router.patch("/:id/status", authorizeRoles("warehouse"), deliveryReportController.updateDeliveryReportStatus);
 
-router.get("/", 
-  authorizeRoles("customer", "supervisor", "warehouse", "admin"), 
-  deliveryReportController.getDeliveryReports
-);
+// Supervisor routes
+router.get("/", authorizeRoles("supervisor"), deliveryReportController.getAllDeliveryReports);
 
-router.get("/:id", 
-  authorizeRoles("customer", "supervisor", "warehouse", "admin"), 
-  deliveryReportController.getDeliveryReportById
-);
+// Customer routes
+router.get("/customer", authorizeRoles("customer"), deliveryReportController.getCustomerDeliveryReports);
 
-router.patch("/:id", 
-  authorizeRoles("warehouse", "admin"), 
-  deliveryReportController.updateDeliveryReport
-);
-
-router.get("/booking/:bookingId", 
-  authorizeRoles("customer", "supervisor", "warehouse", "admin"), 
-  deliveryReportController.getDeliveryReportsByBooking
-);
-
-router.get("/delivery-order/:deliveryOrderId", 
-  authorizeRoles("customer", "supervisor", "warehouse", "admin"), 
-  deliveryReportController.getDeliveryReportsByDeliveryOrder
-);
+// Common routes
+router.get("/:id", deliveryReportController.getDeliveryReportById);
 
 export default router;

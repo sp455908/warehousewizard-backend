@@ -18,6 +18,12 @@ router.get("/",
   deliveryAdviceController.getDeliveryAdvices
 );
 
+// Place specific routes BEFORE parameterized :id route to avoid conflicts
+router.get("/booking/:bookingId", 
+  authorizeRoles("customer", "supervisor", "admin"), 
+  deliveryAdviceController.getDeliveryAdvicesByBooking
+);
+
 router.get("/:id", 
   authorizeRoles("customer", "supervisor", "admin"), 
   deliveryAdviceController.getDeliveryAdviceById
@@ -26,11 +32,6 @@ router.get("/:id",
 router.patch("/:id", 
   authorizeRoles("supervisor", "admin"), 
   deliveryAdviceController.updateDeliveryAdvice
-);
-
-router.get("/booking/:bookingId", 
-  authorizeRoles("customer", "supervisor", "admin"), 
-  deliveryAdviceController.getDeliveryAdvicesByBooking
 );
 
 export default router;

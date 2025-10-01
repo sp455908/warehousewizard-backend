@@ -13,10 +13,28 @@ export class CartingController {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 
+      // Validate booking and resolve warehouseId
+      if (!cartingData.bookingId) {
+        return res.status(400).json({ message: "bookingId is required" });
+      }
+
+      const booking = await prisma.booking.findUnique({
+        where: { id: cartingData.bookingId },
+        select: { id: true, warehouseId: true }
+      });
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      const resolvedWarehouseId = booking.warehouseId || (req.user as any)?.id;
+      if (!resolvedWarehouseId) {
+        return res.status(400).json({ message: "warehouseId could not be resolved" });
+      }
+
       const cartingDetail = await prisma.cartingDetail.create({
         data: {
-          bookingId: cartingData.bookingId,
-          warehouseId: cartingData.warehouseId,
+          booking: { connect: { id: booking.id } },
+          warehouse: { connect: { id: resolvedWarehouseId } },
           itemDescription: cartingData.itemDescription,
           quantity: cartingData.quantity,
           weight: cartingData.weight || null,
@@ -59,37 +77,20 @@ export class CartingController {
 
   async getCartingDetails(req: AuthenticatedRequest, res: Response) {
     try {
-      const user = req.user! as any;
-      let cartingDetails;
-
-      if (user.role === "warehouse") {
-        // Get carting details for this warehouse
-        cartingDetails = await prisma.cartingDetail.findMany({
-          where: { warehouseId: user.id },
-          include: {
-            booking: { 
-              include: { 
-                customer: { select: { firstName: true, lastName: true, email: true, company: true } }
-              }
-            },
-            warehouse: { select: { name: true, location: true } }
+      // Return all carting details for authorized roles
+      // Note: We cannot scope by warehouse here because User.id is not Warehouse.id.
+      // Proper scoping requires a user-to-warehouse mapping, which can be added later.
+      const cartingDetails = await prisma.cartingDetail.findMany({
+        include: {
+          booking: { 
+            include: { 
+              customer: { select: { firstName: true, lastName: true, email: true, company: true } }
+            }
           },
-          orderBy: { createdAt: 'desc' }
-        });
-      } else {
-        // Get all carting details for supervisor, admin
-        cartingDetails = await prisma.cartingDetail.findMany({
-          include: {
-            booking: { 
-              include: { 
-                customer: { select: { firstName: true, lastName: true, email: true, company: true } }
-              }
-            },
-            warehouse: { select: { name: true, location: true } }
-          },
-          orderBy: { createdAt: 'desc' }
-        });
-      }
+          warehouse: { select: { name: true, location: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
 
       res.json(cartingDetails);
       return;

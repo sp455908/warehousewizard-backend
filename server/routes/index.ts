@@ -15,6 +15,11 @@ import cartingRoutes from "./cartingRoutes";
 import deliveryAdviceRoutes from "./deliveryAdviceRoutes";
 import deliveryOrderRoutes from "./deliveryOrderRoutes";
 import deliveryReportRoutes from "./deliveryReportRoutes";
+import deliveryRequestRoutes from "./deliveryRequestRoutes";
+import invoiceRequestRoutes from "./invoiceRequestRoutes";
+import workflowRoutes from "./workflowRoutes";
+import workflowStateRoutes from "./workflowStateRoutes";
+import panelDashboardRoutes from "./panelDashboardRoutes";
 
 const router = Router();
 
@@ -35,6 +40,11 @@ router.use("/carting-details", cartingRoutes);
 router.use("/delivery-advices", deliveryAdviceRoutes);
 router.use("/delivery-orders", deliveryOrderRoutes);
 router.use("/delivery-reports", deliveryReportRoutes);
+router.use("/delivery-requests", deliveryRequestRoutes);
+router.use("/invoice-requests", invoiceRequestRoutes);
+router.use("/workflow", workflowRoutes);
+router.use("/workflow-state", workflowStateRoutes);
+router.use("/panel-dashboard", panelDashboardRoutes);
 
 // Health check
 router.get("/health", (req, res) => {

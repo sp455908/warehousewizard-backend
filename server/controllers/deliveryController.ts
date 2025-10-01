@@ -59,6 +59,11 @@ export class DeliveryController {
         filter.customerId = user.id || user._id?.toString();
       }
       
+      // For warehouse users, default to scheduled requests (temporarily show all due to missing user→warehouse mapping)
+      if (user.role === "warehouse") {
+        filter.status = (status as string) || "scheduled";
+      }
+      
       if (status) {
         filter.status = status as string;
       } else {
@@ -68,7 +73,11 @@ export class DeliveryController {
         }
       }
       const deliveries = await prisma.deliveryRequest.findMany({
-        where: filter,
+        where: {
+          ...filter
+          // NOTE: Intentionally not scoping by booking.warehouseId for warehouse users
+          // because User.id does not map to Warehouse.id in current schema. Add mapping later.
+        },
         orderBy: { createdAt: 'desc' },
         include: {
           customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
@@ -379,9 +388,8 @@ export class DeliveryController {
       const updatedRequest = await prisma.deliveryRequest.update({
         where: { id },
         data: { 
-          status: "approved",
-          assignedDriver: (req.user! as any).id, // Assign supervisor as approver
-          specialRequirements: notes ? `${deliveryRequest.specialRequirements || ''}\nApproval Notes: ${notes}` : deliveryRequest.specialRequirements
+          status: "scheduled",
+          assignedDriver: (req.user! as any).id // Assign supervisor as approver
         },
         include: {
           customer: { select: { firstName: true, lastName: true, email: true, company: true } },
@@ -397,13 +405,13 @@ export class DeliveryController {
       if (deliveryAdvice) {
         await prisma.deliveryAdvice.create({
           data: {
-            deliveryRequestId: id,
             bookingId: deliveryRequest.bookingId,
             customerId: deliveryRequest.customerId,
-            warehouseId: deliveryRequest.booking?.warehouseId,
-            adviceDetails: deliveryAdvice,
-            status: "created",
-            createdBy: (req.user! as any).id
+            deliveryAddress: deliveryRequest.deliveryAddress,
+            preferredDate: deliveryRequest.preferredDate,
+            urgency: deliveryRequest.urgency,
+            instructions: deliveryAdvice,
+            status: "created"
           }
         });
       }
@@ -467,8 +475,7 @@ export class DeliveryController {
       const updatedRequest = await prisma.deliveryRequest.update({
         where: { id },
         data: { 
-          status: "rejected",
-          specialRequirements: reason ? `${deliveryRequest.specialRequirements || ''}\nRejection Reason: ${reason}` : deliveryRequest.specialRequirements
+          status: "requested"
         },
         include: {
           customer: { select: { firstName: true, lastName: true, email: true, company: true } }

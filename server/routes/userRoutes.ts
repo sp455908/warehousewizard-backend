@@ -34,13 +34,15 @@ router.post("/change-password", userController.changePassword);
 
 // Admin-only user management routes
 router.get("/", authorizeRoles("admin"), userController.getAllUsers);
+// Admin: lightweight list of active customers (for dashboards)
+router.get("/customers/active/list", authorizeRoles("admin"), userController.getActiveCustomersList.bind(userController));
 router.get("/:id", authorizeRoles("admin"), userController.getUserById);
 router.post("/", authorizeRoles("admin"), validateRequest(insertUserSchema), userController.createUser);
 router.put("/:id", authorizeRoles("admin"), userController.updateUser);
 router.delete("/:id", authorizeRoles("admin"), userController.deleteUser);
 
 // Role-specific routes
-router.get("/role/:role", authorizeRoles("admin"), userController.getUsersByRole);
+router.get("/role/:role", authorizeRoles("admin", "purchase_support"), userController.getUsersByRole);
 
 // User activation/deactivation
 router.post("/:id/activate", authorizeRoles("admin"), userController.activateUser);
@@ -49,5 +51,8 @@ router.post("/:id/deactivate", authorizeRoles("admin"), userController.deactivat
 // Guest customer verification
 router.post("/:id/verify", authorizeRoles("purchase_support", "admin"), userController.verifyGuestCustomer);
 router.get("/guests/pending", authorizeRoles("purchase_support", "admin"), userController.getPendingGuestCustomers);
+
+// Customer management routes
+router.get("/customers/denied", authorizeRoles("purchase_support", "admin"), userController.getDeniedCustomers);
 
 export default router;

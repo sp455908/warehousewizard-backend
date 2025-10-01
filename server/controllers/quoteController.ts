@@ -5,7 +5,6 @@ import { QuoteStatus } from "@prisma/client";
 import { z } from "zod";
 import { notificationService } from "../services/notificationService";
 
-
 const insertQuoteSchema = z.object({
   customerId: z.string(),
   storageType: z.string(),
@@ -15,11 +14,18 @@ const insertQuoteSchema = z.object({
   specialRequirements: z.string().optional(),
 });
 
+const safeNumber = (fallback: number) =>
+  z.preprocess((val) => {
+    if (val === undefined || val === null || val === "") return undefined;
+    const n = Number(val);
+    return Number.isFinite(n) ? n : undefined;
+  }, z.number().int().positive().default(fallback));
+
 const quoteSearchSchema = z.object({
   status: z.string().optional(),
   storageType: z.string().optional(),
-  page: z.preprocess(val => parseInt(val as string, 10), z.number().default(1)),
-  limit: z.preprocess(val => parseInt(val as string, 10), z.number().default(20)),
+  page: safeNumber(1),
+  limit: safeNumber(20),
   sortBy: z.string().default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
@@ -31,7 +37,29 @@ export class QuoteController {
       
       // Handle specialized forms differently
       if (req.body.formType) {
-        // For specialized forms, store the entire form data as JSON
+        // Extract only the special requirements from the form data
+        const specialRequirements = {
+          productName: req.body.productName,
+          natureOfCargo: req.body.natureOfCargo,
+          numberOfPackages: req.body.numberOfPackages,
+          packageUnit: req.body.packageUnit,
+          assessableValue: req.body.assessableValue,
+          cargoSelfLife: req.body.cargoSelfLife,
+          unNumber: req.body.unNumber,
+          requiredTemp: req.body.requiredTemp,
+          hazardousClass: req.body.hazardousClass,
+          stackable: req.body.stackable,
+          equipmentsRequirement: req.body.equipmentsRequirement,
+          packagingRequirement: req.body.packagingRequirement,
+          labourRequirement: req.body.labourRequirement,
+          remarks: req.body.remarks || req.body.salesNotes || req.body.additionalCharges || "No additional remarks"
+        };
+
+        // Remove null/undefined values
+        const cleanedSpecialRequirements = Object.fromEntries(
+          Object.entries(specialRequirements).filter(([_, value]) => value !== null && value !== undefined && value !== "")
+        );
+
         const quote = await prisma.quote.create({
           data: {
             customerId: customerId,
@@ -39,14 +67,32 @@ export class QuoteController {
             requiredSpace: req.body.spaceRequired || req.body.requiredSpace || 0,
             preferredLocation: req.body.origin || req.body.preferredLocation || "Not specified",
             duration: req.body.storagePeriod ? `${req.body.storagePeriod} days` : "Not specified",
-            specialRequirements: JSON.stringify(req.body), // Store entire form data as JSON
+            specialRequirements: JSON.stringify(cleanedSpecialRequirements), // Store only relevant special requirements
             status: "pending",
             warehouseId: req.body.warehouseId || null,
+            // Initialize workflow state
+            currentWorkflowStep: "C1",
+            workflowHistory: [{
+              step: "C1",
+              role: "customer",
+              action: "Submit Quote Request",
+              timestamp: new Date(),
+              details: `Quote created for ${req.body.formType} storage`
+            }]
           },
           include: {
             customer: { select: { firstName: true, lastName: true, email: true, company: true } }
           }
         });
+
+        // Send notification to purchase panel
+        await notificationService.sendWorkflowNotification(
+          quote.id, 
+          "C1", 
+          "C2", 
+          quote.customer, 
+          null
+        );
 
         res.status(201).json(quote);
         return;
@@ -67,11 +113,29 @@ export class QuoteController {
           duration: quoteData.duration,
           specialRequirements: quoteData.specialRequirements,
           status: "pending",
+          // Initialize workflow state
+          currentWorkflowStep: "C1",
+          workflowHistory: [{
+            step: "C1",
+            role: "customer",
+            action: "Submit Quote Request",
+            timestamp: new Date(),
+            details: `Quote created for ${quoteData.storageType} storage`
+          }]
         },
         include: {
           customer: { select: { firstName: true, lastName: true, email: true, company: true } }
         }
       });
+
+      // Send notification to purchase panel
+      await notificationService.sendWorkflowNotification(
+        quote.id, 
+        "C1", 
+        "C2", 
+        quote.customer, 
+        null
+      );
 
       res.status(201).json(quote);
       return;
@@ -100,9 +164,46 @@ export class QuoteController {
         }
         quotes = await QuoteController.getQuotesByCustomer(customerId);
       } else if (user.role === "purchase_support") {
-        quotes = await QuoteController.getQuotesByStatus(QuoteStatus.pending);
+        // Purchase support should see all quotes in the workflow to track complete history
+        quotes = await prisma.quote.findMany({
+          where: {
+            status: { in: [
+              "pending",
+              "warehouse_quote_requested", 
+              "warehouse_quote_received",
+              "processing",
+              "quoted",
+              "customer_confirmation_pending",
+              "booking_confirmed",
+              "rejected"
+            ] }
+          },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+            warehouse: { select: { name: true, location: true, city: true, state: true } },
+            assignedToUser: { select: { firstName: true, lastName: true, email: true } }
+          }
+        });
       } else if (user.role === "sales_support") {
-        quotes = await QuoteController.getQuotesByStatus(QuoteStatus.processing);
+        // Sales support should see all quotes in the workflow to track complete history
+        quotes = await prisma.quote.findMany({
+          where: {
+            status: { in: [
+              "processing",
+              "quoted",
+              "customer_confirmation_pending",
+              "booking_confirmed",
+              "rejected"
+            ] }
+          },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+            warehouse: { select: { name: true, location: true, city: true, state: true } },
+            assignedToUser: { select: { firstName: true, lastName: true, email: true } }
+          }
+        });
       } else if (user.role === "warehouse") {
         quotes = await QuoteController.getQuotesByAssignee(user.id);
       } else {
@@ -240,23 +341,42 @@ export class QuoteController {
       
       if (confirmed) {
         // Customer confirmed - create booking
-        const booking = await prisma.booking.create({
-          data: {
-            quoteId: id,
-            customerId: quote.customerId,
-            warehouseId: quote.warehouseId!,
-            status: "customer_confirmation_pending",
-            startDate: new Date(),
-            endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days default
-            totalAmount: quote.finalPrice || 0,
-          },
-          include: {
-            customer: { select: { firstName: true, lastName: true, email: true } },
-            warehouse: { select: { name: true, location: true } }
-          }
+        console.log("confirmQuote - Creating booking for quote:", id);
+        console.log("confirmQuote - Quote data:", {
+          id,
+          customerId: quote.customerId,
+          warehouseId: quote.warehouseId,
+          finalPrice: quote.finalPrice
         });
         
-        // Update quote status
+        let booking;
+        try {
+          booking = await prisma.booking.create({
+            data: {
+              quoteId: id,
+              customerId: quote.customerId,
+              warehouseId: quote.warehouseId!,
+              status: "pending",
+              startDate: new Date(),
+              endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days default
+              totalAmount: quote.finalPrice || 0,
+            },
+            include: {
+              customer: { select: { firstName: true, lastName: true, email: true } },
+              warehouse: { select: { name: true, location: true } }
+            }
+          });
+          console.log("confirmQuote - Booking created successfully:", booking);
+        } catch (bookingError) {
+          console.error("confirmQuote - Failed to create booking:", bookingError);
+          return res.status(500).json({ 
+            message: "Failed to create booking", 
+            error: bookingError,
+            quoteId: id 
+          });
+        }
+        
+        // Update quote status to customer_confirmation_pending (Step 7)
         await prisma.quote.update({
           where: { id },
           data: { status: "customer_confirmation_pending" }
@@ -289,9 +409,19 @@ export class QuoteController {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       
+      // Lock: can approve only when quote is in a sales-review state
+      const existing = await prisma.quote.findUnique({ where: { id } });
+      if (!existing) {
+        return res.status(404).json({ message: "Quote not found" });
+      }
+      if (!["processing", "rate_confirmed"].includes(existing.status)) {
+        return res.status(409).json({ message: "Quote cannot be approved in current state", currentStatus: existing.status });
+      }
+
       const quote = await prisma.quote.update({
         where: { id },
         data: { 
+          // Send to Supervisor next per workflow; customer sees confirm only after supervisor review
           status: "quoted",
           finalPrice,
           warehouseId,
@@ -319,6 +449,15 @@ export class QuoteController {
       const { id } = req.params;
       const { reason } = req.body;
       
+      const existing = await prisma.quote.findUnique({ where: { id } });
+      if (!existing) {
+        return res.status(404).json({ message: "Quote not found" });
+      }
+      // Allow reject from processing/quoted by sales/supervisor; block after booking
+      if (["booking_confirmed", "customer_confirmation_pending"].includes(existing.status)) {
+        return res.status(409).json({ message: "Quote cannot be rejected in current state", currentStatus: existing.status });
+      }
+
       const quote = await prisma.quote.update({
         where: { id },
         data: { 
@@ -342,12 +481,85 @@ export class QuoteController {
     }
   }
 
+  // Supervisor approves rate to route to customer for confirmation
+  supervisorApproveQuote = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const role = (req.user! as any).role;
+      if (!["supervisor", "admin"].includes(role)) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      const existing = await prisma.quote.findUnique({ where: { id } });
+      if (!existing) {
+        return res.status(404).json({ message: "Quote not found" });
+      }
+
+      // Only allow from quoted (i.e., after sales rate confirmation)
+      if (existing.status !== "quoted") {
+        return res.status(409).json({ message: "Quote is not awaiting supervisor review", currentStatus: existing.status });
+      }
+
+      const updated = await prisma.quote.update({
+        where: { id },
+        data: {
+          status: "customer_confirmation_pending",
+          updatedAt: new Date()
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+          warehouse: { select: { name: true, location: true, city: true, state: true } }
+        }
+      });
+
+      // Optional: notify customer
+      await notificationService.sendEmail({
+        to: (updated.customer as any)?.email || "",
+        subject: `Action Required: Quote Confirmation - ${id}`,
+        html: `
+          <h2>Your Quote is Ready for Confirmation</h2>
+          <p>Please review the final rate and confirm to proceed with booking.</p>
+          <p>Quote ID: ${id}</p>
+        `,
+      });
+
+      res.json(updated);
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to move quote to customer confirmation", error });
+    }
+  }
+
   // Customer quote confirmation (agree/reject rate)
   confirmQuoteByCustomer = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const { confirmed, bookingData } = req.body;
+      
+      // Parse the request body properly
+      let requestData;
+      try {
+        if (typeof req.body === 'string') {
+          requestData = JSON.parse(req.body);
+        } else if (req.body.body && typeof req.body.body === 'string') {
+          requestData = JSON.parse(req.body.body);
+        } else {
+          requestData = req.body;
+        }
+      } catch (parseError) {
+        console.log("[DEBUG] JSON Parse Error:", parseError);
+        console.log("[DEBUG] Raw body:", req.body);
+        return res.status(400).json({ message: "Invalid JSON in request body" });
+      }
+      
+      const { confirmed, bookingData, reason } = requestData;
       const customerId = (req.user as any)?.id || (req.user as any)?._id?.toString();
+      
+      console.log("[DEBUG] confirmQuoteByCustomer - Quote ID:", id);
+      console.log("[DEBUG] confirmQuoteByCustomer - Confirmed:", confirmed);
+      console.log("[DEBUG] confirmQuoteByCustomer - Reason:", reason);
+      console.log("[DEBUG] confirmQuoteByCustomer - Customer ID:", customerId);
+      console.log("[DEBUG] confirmQuoteByCustomer - Request body:", req.body);
+      console.log("[DEBUG] confirmQuoteByCustomer - Parsed data:", requestData);
       
       // Verify customer owns this quote
       const quote = await prisma.quote.findFirst({
@@ -358,12 +570,13 @@ export class QuoteController {
         return res.status(404).json({ message: "Quote not found" });
       }
       
-      if (confirmed) {
-        // Customer agrees with rate - set status to customer_confirmation_pending
+      if (confirmed === true) {
+        // Customer agrees with rate - set status to customer_confirmed (Step 7 done, awaiting supervisor)
+        console.log("[DEBUG] Setting quote status to customer_confirmed - Step 7 completed");
         const updatedQuote = await prisma.quote.update({
           where: { id },
           data: { 
-            status: "customer_confirmation_pending",
+            status: "customer_confirmed",
             updatedAt: new Date()
           },
           include: {
@@ -372,16 +585,31 @@ export class QuoteController {
           }
         });
         
-        // If booking data provided, create booking
-        if (bookingData) {
-          const booking = await prisma.booking.create({
+        // Send notification to supervisor for final confirmation (Step 7 → Step 8)
+        await notificationService.sendEmail({
+          to: "supervisor@example.com", // TODO: Get actual supervisor email
+          subject: `Customer Confirmed Booking - Quote ${id}`,
+          html: `
+            <h2>Customer Confirmed Booking</h2>
+            <p>Customer has confirmed the booking and it's ready for supervisor approval.</p>
+            <p>Quote ID: ${id}</p>
+            <p>Customer: ${(updatedQuote.customer as any)?.firstName} ${(updatedQuote.customer as any)?.lastName}</p>
+            <p>Final Price: ₹${quote.finalPrice?.toLocaleString() || 'N/A'}</p>
+            <p>Please review and confirm the booking.</p>
+          `,
+        });
+        
+        // Ensure a pending booking exists for supervisor approval
+        let existingBooking = await prisma.booking.findFirst({ where: { quoteId: id } });
+        if (!existingBooking) {
+          existingBooking = await prisma.booking.create({
             data: {
               quoteId: id,
               customerId,
               warehouseId: quote.warehouseId!,
-              status: "customer_confirmation_pending",
-              startDate: new Date(bookingData.startDate),
-              endDate: new Date(bookingData.endDate),
+              status: "pending",
+              startDate: new Date(bookingData?.startDate || Date.now()),
+              endDate: new Date(bookingData?.endDate || Date.now() + 30 * 24 * 3600 * 1000),
               totalAmount: quote.finalPrice || 0,
             },
             include: {
@@ -389,18 +617,17 @@ export class QuoteController {
               warehouse: { select: { name: true, location: true, city: true, state: true } }
             }
           });
-          
-          return res.json({ quote: updatedQuote, booking });
         }
-        
-        return res.json({ quote: updatedQuote });
+
+        return res.json({ quote: updatedQuote, booking: existingBooking });
       } else {
         // Customer rejects rate
+        console.log("[DEBUG] Setting quote status to rejected");
         const updatedQuote = await prisma.quote.update({
           where: { id },
           data: { 
             status: "rejected",
-            specialRequirements: "Rejected by customer",
+            specialRequirements: reason ? `Rejected by customer: ${reason}` : "Rejected by customer",
             updatedAt: new Date()
           },
           include: {
@@ -426,11 +653,19 @@ export class QuoteController {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       
+      const existingQuote = await prisma.quote.findUnique({
+        where: { id }
+      });
+
+      if (!existingQuote) {
+        return res.status(404).json({ message: "Quote not found" });
+      }
+
       const quote = await prisma.quote.update({
         where: { id },
         data: { 
           finalPrice,
-          specialRequirements: notes ? `Sales notes: ${notes}` : quote.specialRequirements,
+          specialRequirements: notes ? `Sales notes: ${notes}` : existingQuote.specialRequirements,
           status: "quoted",
           updatedAt: new Date()
         },
@@ -538,9 +773,9 @@ export class QuoteController {
           status: true,
           assignedTo: true,
           warehouseId: true,
+          finalPrice: true, // Include finalPrice for customers to see rates sent by sales
           createdAt: true,
           updatedAt: true,
-          // Exclude finalPrice for customers
           customer: { select: { firstName: true, lastName: true, email: true, company: true } },
           warehouse: { select: { name: true, location: true, city: true, state: true } },
           assignedToUser: { select: { firstName: true, lastName: true, email: true } }
@@ -583,11 +818,67 @@ export class QuoteController {
       case "customer":
         return await QuoteController.getQuotesByCustomer(userId);
       case "purchase_support":
-        return await QuoteController.getQuotesByStatus(QuoteStatus.pending);
+        // Purchase support should see all quotes in the workflow to track complete history
+        return await prisma.quote.findMany({
+          where: {
+            status: { in: [
+              "pending",
+              "warehouse_quote_requested", 
+              "warehouse_quote_received",
+              "processing",
+              "quoted",
+              "customer_confirmation_pending",
+              "booking_confirmed",
+              "rejected"
+            ] }
+          },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+            warehouse: { select: { name: true, location: true, city: true, state: true } },
+            assignedToUser: { select: { firstName: true, lastName: true, email: true } }
+          }
+        });
       case "sales_support":
-        return await QuoteController.getQuotesByStatus(QuoteStatus.processing);
+        // Sales support should see all quotes in sales-relevant stages, regardless of assignment
+        return await prisma.quote.findMany({
+          where: {
+            status: { in: [
+              "processing",
+              // After sales submits rate, it moves to supervisor as 'quoted'
+              "quoted",
+              // After supervisor approves, it becomes 'customer_confirmation_pending'
+              "customer_confirmation_pending",
+            ] }
+          },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+            warehouse: { select: { name: true, location: true, city: true, state: true } },
+            assignedToUser: { select: { firstName: true, lastName: true, email: true } }
+          }
+        });
       case "warehouse":
         return await QuoteController.getQuotesByAssignee(userId);
+      case "supervisor":
+        // Supervisor should see all quotes in the workflow to track complete history
+        return await prisma.quote.findMany({
+          where: {
+            status: { in: [
+              "quoted", // Quotes from sales awaiting supervisor review
+              "customer_confirmation_pending", // Quotes approved by supervisor, awaiting customer
+              "customer_confirmation_pending", // Customer confirmed quotes awaiting supervisor approval (Step 7)
+              "booking_confirmed", // Confirmed bookings
+              "rejected" // Rejected quotes
+            ] }
+          },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
+            warehouse: { select: { name: true, location: true, city: true, state: true } },
+            assignedToUser: { select: { firstName: true, lastName: true, email: true } }
+          }
+        });
       default:
         return await prisma.quote.findMany({
           orderBy: { createdAt: 'desc' },
@@ -599,133 +890,6 @@ export class QuoteController {
         });
     }
   }
-
-  // Customer quote confirmation and booking form submission
-  confirmQuoteByCustomer = async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { action, bookingForm } = req.body; // action: 'agree' | 'reject', bookingForm: optional
-      
-      const quote = await prisma.quote.findUnique({
-        where: { id },
-        include: { customer: true }
-      });
-
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-
-      // Check if customer owns this quote
-      if (quote.customerId !== (req.user as any).id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      if (action === 'agree') {
-        // Customer agrees with the rate
-        const updatedQuote = await prisma.quote.update({
-          where: { id },
-          data: { 
-            status: "customer_confirmation_pending",
-            specialRequirements: bookingForm ? JSON.stringify(bookingForm) : quote.specialRequirements
-          },
-          include: {
-            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-            warehouse: { select: { name: true, location: true, city: true, state: true } }
-          }
-        });
-
-        // Send notification to supervisor
-        await notificationService.sendEmail({
-          to: "supervisor@example.com", // TODO: Get actual supervisor email
-          subject: `Customer Quote Confirmation - Quote ${id}`,
-          html: `
-            <h2>Customer Quote Confirmation</h2>
-            <p>Customer has agreed to the quote and submitted booking form.</p>
-            <p>Quote ID: ${id}</p>
-            <p>Customer: ${quote.customer.firstName} ${quote.customer.lastName}</p>
-            <p>Please review and approve the booking request.</p>
-          `,
-        });
-
-        res.json({ message: "Quote confirmed successfully", quote: updatedQuote });
-      } else if (action === 'reject') {
-        // Customer rejects the rate
-        const updatedQuote = await prisma.quote.update({
-          where: { id },
-          data: { status: "rejected" },
-          include: {
-            customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-            warehouse: { select: { name: true, location: true, city: true, state: true } }
-          }
-        });
-
-        // Send notification to sales
-        await notificationService.sendEmail({
-          to: "sales@example.com", // TODO: Get actual sales email
-          subject: `Customer Quote Rejection - Quote ${id}`,
-          html: `
-            <h2>Customer Quote Rejection</h2>
-            <p>Customer has rejected the quote.</p>
-            <p>Quote ID: ${id}</p>
-            <p>Customer: ${quote.customer.firstName} ${quote.customer.lastName}</p>
-            <p>Please review and adjust the pricing if needed.</p>
-          `,
-        });
-
-        res.json({ message: "Quote rejected", quote: updatedQuote });
-      } else {
-        return res.status(400).json({ message: "Invalid action. Must be 'agree' or 'reject'" });
-      }
-    } catch (error) {
-      console.error("Quote confirmation error:", error);
-      return res.status(500).json({ message: "Failed to confirm quote", error });
-    }
-  };
-
-  // Sales rate editing with margin
-  editQuoteRate = async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { finalPrice, margin, notes } = req.body;
-      
-      // Only sales can edit rates
-      if ((req.user! as any).role !== "sales_support") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-
-      const quote = await prisma.quote.update({
-        where: { id },
-        data: { 
-          finalPrice,
-          status: "quoted",
-          specialRequirements: notes ? `Sales Notes: ${notes}` : undefined
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
-        }
-      });
-
-      // Send notification to customer
-      await notificationService.sendEmail({
-        to: quote.customer.email,
-        subject: `Quote Updated - Quote ${id}`,
-        html: `
-          <h2>Quote Updated</h2>
-          <p>Your quote has been updated with final pricing.</p>
-          <p>Quote ID: ${id}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Please review and confirm your acceptance.</p>
-        `,
-      });
-
-      res.json({ message: "Quote rate updated successfully", quote });
-    } catch (error) {
-      console.error("Quote rate edit error:", error);
-      return res.status(500).json({ message: "Failed to edit quote rate", error });
-    }
-  };
 
   private static async searchQuotes(params: any) {
     const { status, storageType, page, limit, sortBy, sortOrder } = params;
@@ -762,792 +926,212 @@ export class QuoteController {
     };
   }
 
-  // Purchase Panel: Accept/Reject warehouse quotes (A2-A3)
-  acceptWarehouseQuote = async (req: AuthenticatedRequest, res: Response) => {
+  // Sales Support: Edit rate and add margin (A11, A12)
+  async salesEditRateAndAddMargin(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { warehouseId, notes } = req.body;
+      const { margin, finalPrice, notes } = req.body;
       
-      // Only purchase support can accept warehouse quotes
-      if ((req.user! as any).role !== "purchase_support") {
+      // Only sales support can edit rates
+      if ((req.user! as any).role !== "sales_support") {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
-      
-      const quote = await prisma.quote.findUnique({
-        where: { id },
-        include: { customer: true, warehouse: true }
-      });
-      
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-      
-      // Update quote with selected warehouse and status
-      const updatedQuote = await prisma.quote.update({
-        where: { id },
-        data: {
-          warehouseId: warehouseId || quote.warehouseId,
-          status: "warehouse_selected",
-          specialRequirements: notes ? `${quote.specialRequirements || ''}\nPurchase Notes: ${notes}` : quote.specialRequirements
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
-        }
-      });
-      
-      // Send notification to sales support
-      await notificationService.sendEmail({
-        to: "sales@warehousewizard.com", // This should be dynamic based on sales team
-        subject: "Warehouse Quote Accepted - Ready for Sales Review",
-        html: `
-          <h2>Warehouse Quote Accepted</h2>
-          <p>Quote ID: ${quote.id}</p>
-          <p>Customer: ${quote.customer?.firstName} ${quote.customer?.lastName}</p>
-          <p>Warehouse: ${updatedQuote.warehouse?.name}</p>
-          <p>Status: Ready for sales review and rate finalization</p>
-        `
-      });
-      
-      res.json({ message: "Warehouse quote accepted", quote: updatedQuote });
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to accept warehouse quote", error });
-    }
-  }
 
-  rejectWarehouseQuote = async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { reason } = req.body;
-      
-      // Only purchase support can reject warehouse quotes
-      if ((req.user! as any).role !== "purchase_support") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-      
       const quote = await prisma.quote.findUnique({
         where: { id },
         include: { customer: true }
       });
-      
+
       if (!quote) {
         return res.status(404).json({ message: "Quote not found" });
       }
-      
-      // Update quote status to rejected
+
+      // Locking rule: Sales can edit only when the quote is in "processing"
+      // and assigned to the current sales user. Once moved to other statuses
+      // (e.g., quoted, customer_confirmation_pending, booking_confirmed, etc.),
+      // prevent further edits.
+      const isOwnedBySales = quote.assignedTo && quote.assignedTo === (req.user as any).id;
+      if (quote.status !== "processing" || !isOwnedBySales) {
+        return res.status(409).json({
+          message: "Quote cannot be edited in its current state",
+          currentStatus: quote.status,
+        });
+      }
+
+      // Update quote with final price and margin
       const updatedQuote = await prisma.quote.update({
         where: { id },
         data: {
-          status: "rejected",
-          specialRequirements: reason ? `${quote.specialRequirements || ''}\nRejection Reason: ${reason}` : quote.specialRequirements
+          finalPrice,
+          specialRequirements: notes ? `${quote.specialRequirements || ''}\nSales Notes: ${notes}` : quote.specialRequirements,
+          // Move to supervisor/customer step per workflow
+          status: "customer_confirmation_pending"
         },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } }
-        }
+        include: { customer: true }
       });
-      
-      // Send notification to customer
-      await notificationService.sendEmail({
-        to: quote.customer?.email || "",
-        subject: "Quote Request Update - Warehouse Wizard",
-        html: `
-          <h2>Quote Request Update</h2>
-          <p>Your quote request has been reviewed and unfortunately cannot be processed at this time.</p>
-          <p>Quote ID: ${quote.id}</p>
-          <p>Reason: ${reason || "No specific reason provided"}</p>
-          <p>Please contact our support team for more information.</p>
-        `
-      });
-      
-      res.json({ message: "Warehouse quote rejected", quote: updatedQuote });
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to reject warehouse quote", error });
-    }
-  }
-
-  // Purchase Panel: Assign warehouse to sales with rate forwarding (A9-A10)
-  assignWarehouseToSales = async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { salesUserId, notes, rateDetails } = req.body;
-      
-      // Only purchase support can assign to sales
-      if ((req.user! as any).role !== "purchase_support") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-      
-      const quote = await prisma.quote.findUnique({
-        where: { id },
-        include: { customer: true, warehouse: true }
-      });
-      
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-      
-      // Update quote with sales assignment and rate details
-      const updatedQuote = await prisma.quote.update({
-        where: { id },
-        data: {
-          assignedTo: salesUserId,
-          status: "assigned_to_sales",
-          specialRequirements: rateDetails ? 
-            `${quote.specialRequirements || ''}\nRate Details: ${JSON.stringify(rateDetails)}` : 
-            quote.specialRequirements
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } },
-          assignedToUser: { select: { firstName: true, lastName: true, email: true } }
-        }
-      });
-      
-      // Send notification to sales support
-      await notificationService.sendEmail({
-        to: "sales@warehousewizard.com", // This should be dynamic based on assigned user
-        subject: "Quote Assigned for Sales Review",
-        html: `
-          <h2>Quote Assigned for Sales Review</h2>
-          <p>Quote ID: ${quote.id}</p>
-          <p>Customer: ${quote.customer?.firstName} ${quote.customer?.lastName}</p>
-          <p>Warehouse: ${quote.warehouse?.name}</p>
-          <p>Rate Details: ${rateDetails ? JSON.stringify(rateDetails) : 'To be determined'}</p>
-          <p>Please review and finalize the rate for customer approval.</p>
-        `
-      });
-      
-      res.json({ message: "Quote assigned to sales", quote: updatedQuote });
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to assign quote to sales", error });
-    }
-  }
-
-  // A5: Warehouse accepts quote request (A5)
-  async warehouseAcceptQuote(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const { warehouseQuote, notes } = req.body;
-      
-      // Only warehouse can accept quotes
-      if ((req.user! as any).role !== "warehouse") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-
-      const quote = await prisma.quote.update({
-        where: { id },
-        data: { 
-          status: "warehouse_quote_accepted",
-          warehouseQuote,
-          warehouseNotes: notes,
-          updatedAt: new Date() as any
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true } }
-        }
-      });
-
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-
-      // Send notification to purchase team
-      await notificationService.sendEmail({
-        to: "purchase@warehousewizard.com", // TODO: Get actual purchase team email
-        subject: `Warehouse Quote Accepted - Quote ${id}`,
-        html: `
-          <h2>Warehouse Quote Accepted</h2>
-          <p>Warehouse has accepted the quote request.</p>
-          <p>Quote ID: ${id}</p>
-          <p>Warehouse Quote: $${warehouseQuote}</p>
-          <p>Customer: ${(quote.customer as any).firstName} ${(quote.customer as any).lastName}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Notes: ${notes || 'None'}</p>
-        `,
-      });
-
-      res.json({ message: "Warehouse quote accepted successfully", quote });
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to accept warehouse quote", error });
-    }
-  }
-
-  // A6: Warehouse rejects quote request (A6)
-  async warehouseRejectQuote(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const { reason } = req.body;
-      
-      // Only warehouse can reject quotes
-      if ((req.user! as any).role !== "warehouse") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-
-      const quote = await prisma.quote.update({
-        where: { id },
-        data: { 
-          status: "warehouse_quote_rejected",
-          warehouseNotes: reason,
-          updatedAt: new Date() as any
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true } }
-        }
-      });
-
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-
-      // Send notification to purchase team
-      await notificationService.sendEmail({
-        to: "purchase@warehousewizard.com", // TODO: Get actual purchase team email
-        subject: `Warehouse Quote Rejected - Quote ${id}`,
-        html: `
-          <h2>Warehouse Quote Rejected</h2>
-          <p>Warehouse has rejected the quote request.</p>
-          <p>Quote ID: ${id}</p>
-          <p>Customer: ${(quote.customer as any).firstName} ${(quote.customer as any).lastName}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Rejection Reason: ${reason || 'No reason provided'}</p>
-        `,
-      });
-
-      res.json({ message: "Warehouse quote rejected", quote });
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to reject warehouse quote", error });
-    }
-  }
-
-  // A7: Warehouse updates price (A7)
-  async warehouseUpdatePrice(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const { warehouseQuote, notes } = req.body;
-      
-      // Only warehouse can update prices
-      if ((req.user! as any).role !== "warehouse") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-
-      const quote = await prisma.quote.update({
-        where: { id },
-        data: { 
-          warehouseQuote,
-          warehouseNotes: notes,
-          updatedAt: new Date() as any
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true } }
-        }
-      });
-
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-
-      res.json({ message: "Warehouse price updated successfully", quote });
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to update warehouse price", error });
-    }
-  }
-
-  // A8: Warehouse sends request to purchase (A8)
-  async warehouseRequestToPurchase(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const { warehouseQuote, notes } = req.body;
-      
-      // Only warehouse can send requests to purchase
-      if ((req.user! as any).role !== "warehouse") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-
-      const quote = await prisma.quote.update({
-        where: { id },
-        data: { 
-          status: "warehouse_quote_requested",
-          warehouseQuote,
-          warehouseNotes: notes,
-          updatedAt: new Date() as any
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true } }
-        }
-      });
-
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-
-      // Send notification to purchase team
-      await notificationService.sendEmail({
-        to: "purchase@warehousewizard.com", // TODO: Get actual purchase team email
-        subject: `Warehouse Quote Request - Quote ${id}`,
-        html: `
-          <h2>Warehouse Quote Request</h2>
-          <p>Warehouse has sent a quote request to purchase team.</p>
-          <p>Quote ID: ${id}</p>
-          <p>Warehouse Quote: $${warehouseQuote}</p>
-          <p>Customer: ${(quote.customer as any).firstName} ${(quote.customer as any).lastName}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Notes: ${notes || 'None'}</p>
-        `,
-      });
-
-      res.json({ message: "Request sent to purchase team successfully", quote });
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to send request to purchase", error });
-    }
-  }
-
-  // A9: Purchase assigns warehouse by forwarding rate to sales (A9)
-  async purchaseAssignToSales(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const { salesUserId, notes } = req.body;
-      
-      // Only purchase support can assign to sales
-      if ((req.user! as any).role !== "purchase_support") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-
-      const quote = await prisma.quote.update({
-        where: { id },
-        data: {
-          assignedTo: salesUserId,
-          status: "sales_assigned",
-          purchaseNotes: notes,
-          updatedAt: new Date() as any
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } },
-          assignedToUser: { select: { firstName: true, lastName: true, email: true } }
-        }
-      });
-
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-
-      // Send notification to sales team
-      await notificationService.sendEmail({
-        to: "sales@warehousewizard.com", // TODO: Get actual sales team email
-        subject: `Quote Assigned to Sales - Quote ${id}`,
-        html: `
-          <h2>Quote Assigned to Sales Team</h2>
-          <p>Purchase team has assigned this quote to sales for rate finalization.</p>
-          <p>Quote ID: ${id}</p>
-          <p>Customer: ${(quote.customer as any).firstName} ${(quote.customer as any).lastName}</p>
-          <p>Warehouse: ${(quote.warehouse as any).name}</p>
-          <p>Warehouse Quote: $${quote.warehouseQuote || 'To be determined'}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Notes: ${notes || 'None'}</p>
-        `,
-      });
-
-      res.json({ message: "Quote assigned to sales team successfully", quote });
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to assign quote to sales", error });
-    }
-  }
-
-  // A10: Purchase assigns warehouse by forwarding rate to sales (A10)
-  async purchaseAssignWarehouseToSales(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const { warehouseId, salesUserId, notes } = req.body;
-      
-      // Only purchase support can assign warehouse to sales
-      if ((req.user! as any).role !== "purchase_support") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-
-      const quote = await prisma.quote.update({
-        where: { id },
-        data: {
-          warehouseId,
-          assignedTo: salesUserId,
-          status: "sales_assigned",
-          purchaseNotes: notes,
-          updatedAt: new Date() as any
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } },
-          assignedToUser: { select: { firstName: true, lastName: true, email: true } }
-        }
-      });
-
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-
-      // Send notification to sales team
-      await notificationService.sendEmail({
-        to: "sales@warehousewizard.com", // TODO: Get actual sales team email
-        subject: `Warehouse Assigned to Sales - Quote ${id}`,
-        html: `
-          <h2>Warehouse Assigned to Sales Team</h2>
-          <p>Purchase team has assigned a warehouse and forwarded the quote to sales.</p>
-          <p>Quote ID: ${id}</p>
-          <p>Customer: ${(quote.customer as any).firstName} ${(quote.customer as any).lastName}</p>
-          <p>Assigned Warehouse: ${(quote.warehouse as any).name}</p>
-          <p>Warehouse Location: ${(quote.warehouse as any).location}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Notes: ${notes || 'None'}</p>
-        `,
-      });
-
-      res.json({ message: "Warehouse assigned to sales team successfully", quote });
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to assign warehouse to sales", error });
-    }
-  }
-
-  // A11: Sales edits rate and adds margin (A11)
-  async salesEditRateAndAddMargin(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const { salesMargin, salesPrice, notes } = req.body;
-      
-      // Only sales support can edit rates and add margins
-      if ((req.user! as any).role !== "sales_support") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-
-      const quote = await prisma.quote.update({
-        where: { id },
-        data: {
-          salesMargin,
-          salesPrice,
-          salesNotes: notes,
-          status: "rate_confirmed",
-          finalPrice: salesPrice,
-          updatedAt: new Date() as any
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
-        }
-      });
-
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
 
       // Send notification to customer
       await notificationService.sendEmail({
-        to: (quote.customer as any).email,
-        subject: `Quote Rate Confirmed - Quote ${id}`,
+        to: (updatedQuote.customer as any).email,
+        subject: `Quote Ready - ${id}`,
         html: `
-          <h2>Quote Rate Confirmed</h2>
-          <p>Your quote has been finalized and is ready for your approval.</p>
+          <h2>Your Quote is Ready</h2>
+          <p>We have prepared a quote for your storage requirements.</p>
           <p>Quote ID: ${id}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Warehouse: ${(quote.warehouse as any).name}</p>
-          <p>Final Price: $${salesPrice}</p>
-          <p>Sales Margin: ${salesMargin}%</p>
-          <p>Please review and confirm your booking.</p>
+          <p>Final Price: ₹${finalPrice}</p>
+          <p>Please review and confirm if you agree with the rate.</p>
         `,
       });
 
-      res.json({ message: "Rate edited and margin added successfully", quote });
+      res.json({ message: "Rate updated and sent to customer", quote: updatedQuote });
       return;
     } catch (error) {
-      return res.status(500).json({ message: "Failed to edit rate and add margin", error });
+      return res.status(500).json({ message: "Failed to update rate", error });
     }
   }
 
-  // A12: Sales selects best warehouse and edits rate (A12)
-  async salesSelectBestWarehouseAndEditRate(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const { warehouseId, salesMargin, salesPrice, notes } = req.body;
-      
-      // Only sales support can select warehouse and edit rates
-      if ((req.user! as any).role !== "sales_support") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-
-      const quote = await prisma.quote.update({
-        where: { id },
-        data: {
-          warehouseId,
-          salesMargin,
-          salesPrice,
-          salesNotes: notes,
-          status: "rate_confirmed",
-          finalPrice: salesPrice,
-          updatedAt: new Date() as any
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
-        }
-      });
-
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-
-      // Send notification to customer
-      await notificationService.sendEmail({
-        to: (quote.customer as any).email,
-        subject: `Best Warehouse Selected - Quote ${id}`,
-        html: `
-          <h2>Best Warehouse Selected</h2>
-          <p>We have selected the best warehouse for your requirements and finalized the rate.</p>
-          <p>Quote ID: ${id}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Selected Warehouse: ${(quote.warehouse as any).name}</p>
-          <p>Warehouse Location: ${(quote.warehouse as any).location}</p>
-          <p>Final Price: $${salesPrice}</p>
-          <p>Sales Margin: ${salesMargin}%</p>
-          <p>Please review and confirm your booking.</p>
-        `,
-      });
-
-      res.json({ message: "Best warehouse selected and rate edited successfully", quote });
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to select warehouse and edit rate", error });
-    }
-  }
-
-  // A13: Customer agrees with rate (A13)
+  // Customer: Agree with rate (A13, A15)
   async customerAgreeWithRate(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { notes } = req.body;
       
-      // Only customer can agree with rate
+      // Only customer can agree with rates
       if ((req.user! as any).role !== "customer") {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 
-      const quote = await prisma.quote.update({
+      const quote = await prisma.quote.findUnique({
         where: { id },
-        data: {
-          status: "customer_accepted",
-          customerNotes: notes,
-          updatedAt: new Date() as any
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
-        }
+        include: { customer: true }
       });
 
       if (!quote) {
         return res.status(404).json({ message: "Quote not found" });
       }
 
+      // Check if quote belongs to this customer
+      if (quote.customerId !== (req.user! as any).id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Update quote status
+      await prisma.quote.update({
+        where: { id },
+        data: { status: "customer_confirmation_pending" }
+      });
+
+      // Create booking request
+      const booking = await prisma.booking.create({
+        data: {
+          quoteId: id,
+          customerId: quote.customerId,
+          warehouseId: quote.warehouseId!,
+          status: "pending",
+          startDate: new Date(),
+          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days default
+          totalAmount: quote.finalPrice || 0,
+        },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true } },
+          warehouse: { select: { name: true, location: true } }
+        }
+      });
+
       // Send notification to supervisor
       await notificationService.sendEmail({
-        to: "supervisor@warehousewizard.com", // TODO: Get actual supervisor email
-        subject: `Customer Accepted Rate - Quote ${id}`,
+        to: "supervisor@example.com", // TODO: Get actual supervisor email
+        subject: `Booking Request - ${id}`,
         html: `
-          <h2>Customer Accepted Rate</h2>
-          <p>Customer has accepted the quoted rate and is ready to proceed with booking.</p>
+          <h2>New Booking Request</h2>
+          <p>Customer has agreed with the rate and submitted a booking request.</p>
           <p>Quote ID: ${id}</p>
-          <p>Customer: ${(quote.customer as any).firstName} ${(quote.customer as any).lastName}</p>
-          <p>Company: ${(quote.customer as any).company || 'N/A'}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Warehouse: ${(quote.warehouse as any).name}</p>
-          <p>Final Price: $${quote.finalPrice}</p>
-          <p>Customer Notes: ${notes || 'None'}</p>
-          <p>Please review and approve the booking request.</p>
+          <p>Booking ID: ${booking.id}</p>
+          <p>Customer: ${(booking.customer as any).firstName} ${(booking.customer as any).lastName}</p>
+          <p>Amount: ₹${booking.totalAmount}</p>
+          <p>Please review and approve the booking.</p>
         `,
       });
 
-      res.json({ message: "Rate accepted successfully", quote });
+      res.json({ message: "Rate agreed and booking created", booking });
       return;
     } catch (error) {
-      return res.status(500).json({ message: "Failed to accept rate", error });
+      return res.status(500).json({ message: "Failed to agree with rate", error });
     }
   }
 
-  // A14: Customer rejects rate (A14)
+  // Customer: Reject rate (A14, A16)
   async customerRejectRate(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
       const { reason } = req.body;
       
-      // Only customer can reject rate
+      // Only customer can reject rates
       if ((req.user! as any).role !== "customer") {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 
-      const quote = await prisma.quote.update({
+      const quote = await prisma.quote.findUnique({
         where: { id },
-        data: {
-          status: "customer_rejected",
-          customerNotes: reason,
-          updatedAt: new Date() as any
-        },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
-        }
+        include: { customer: true }
       });
 
       if (!quote) {
         return res.status(404).json({ message: "Quote not found" });
       }
 
-      // Send notification to sales team
+      // Check if quote belongs to this customer
+      if (quote.customerId !== (req.user! as any).id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Update quote status
+      await prisma.quote.update({
+        where: { id },
+        data: { 
+          status: "rejected",
+          specialRequirements: reason ? `${quote.specialRequirements || ''}\nCustomer Rejection: ${reason}` : quote.specialRequirements
+        }
+      });
+
+      // Send notification to sales support
       await notificationService.sendEmail({
-        to: "sales@warehousewizard.com", // TODO: Get actual sales team email
-        subject: `Customer Rejected Rate - Quote ${id}`,
+        to: "sales@example.com", // TODO: Get actual sales email
+        subject: `Rate Rejected - ${id}`,
         html: `
-          <h2>Customer Rejected Rate</h2>
-          <p>Customer has rejected the quoted rate and provided feedback.</p>
+          <h2>Rate Rejected by Customer</h2>
+          <p>Customer has rejected the proposed rate.</p>
           <p>Quote ID: ${id}</p>
           <p>Customer: ${(quote.customer as any).firstName} ${(quote.customer as any).lastName}</p>
-          <p>Company: ${(quote.customer as any).company || 'N/A'}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Warehouse: ${(quote.warehouse as any).name}</p>
-          <p>Final Price: $${quote.finalPrice}</p>
-          <p>Rejection Reason: ${reason || 'No reason provided'}</p>
-          <p>Please review and adjust the rate accordingly.</p>
+          <p>Reason: ${reason || 'No reason provided'}</p>
+          <p>Please review and provide alternative options.</p>
         `,
       });
 
-      res.json({ message: "Rate rejected successfully", quote });
+      res.json({ message: "Rate rejected" });
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to reject rate", error });
     }
   }
 
-  // A15: Customer agrees with rate (A15) - Alternative path
-  async customerAgreeWithRateAlt(req: AuthenticatedRequest, res: Response) {
+  async getPendingWarehouseQuotes(req: AuthenticatedRequest, res: Response) {
     try {
-      const { id } = req.params;
-      const { notes } = req.body;
-      
-      // Only customer can agree with rate
-      if ((req.user! as any).role !== "customer") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-
-      const quote = await prisma.quote.update({
-        where: { id },
-        data: {
-          status: "customer_accepted",
-          customerNotes: notes,
-          updatedAt: new Date() as any
+      const pendingQuotes = await prisma.quote.findMany({
+        where: {
+          status: "warehouse_quote_requested"
         },
         include: {
           customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
-        }
-      });
-
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-
-      // Send notification to supervisor
-      await notificationService.sendEmail({
-        to: "supervisor@warehousewizard.com", // TODO: Get actual supervisor email
-        subject: `Customer Accepted Rate - Quote ${id}`,
-        html: `
-          <h2>Customer Accepted Rate</h2>
-          <p>Customer has accepted the quoted rate and is ready to proceed with booking.</p>
-          <p>Quote ID: ${id}</p>
-          <p>Customer: ${(quote.customer as any).firstName} ${(quote.customer as any).lastName}</p>
-          <p>Company: ${(quote.customer as any).company || 'N/A'}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Warehouse: ${(quote.warehouse as any).name}</p>
-          <p>Final Price: $${quote.finalPrice}</p>
-          <p>Customer Notes: ${notes || 'None'}</p>
-          <p>Please review and approve the booking request.</p>
-        `,
-      });
-
-      res.json({ message: "Rate accepted successfully", quote });
-      return;
-    } catch (error) {
-      return res.status(500).json({ message: "Failed to accept rate", error });
-    }
-  }
-
-  // A16: Customer rejects rate (A16) - Alternative path
-  async customerRejectRateAlt(req: AuthenticatedRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const { reason } = req.body;
-      
-      // Only customer can reject rate
-      if ((req.user! as any).role !== "customer") {
-        return res.status(403).json({ message: "Insufficient permissions" });
-      }
-
-      const quote = await prisma.quote.update({
-        where: { id },
-        data: {
-          status: "customer_rejected",
-          customerNotes: reason,
-          updatedAt: new Date() as any
+          warehouse: { select: { name: true, location: true, city: true, state: true } },
+          assignedToUser: { select: { firstName: true, lastName: true, email: true } }
         },
-        include: {
-          customer: { select: { firstName: true, lastName: true, email: true, company: true } },
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
-        }
+        orderBy: { createdAt: 'desc' }
       });
 
-      if (!quote) {
-        return res.status(404).json({ message: "Quote not found" });
-      }
-
-      // Send notification to sales team
-      await notificationService.sendEmail({
-        to: "sales@warehousewizard.com", // TODO: Get actual sales team email
-        subject: `Customer Rejected Rate - Quote ${id}`,
-        html: `
-          <h2>Customer Rejected Rate</h2>
-          <p>Customer has rejected the quoted rate and provided feedback.</p>
-          <p>Quote ID: ${id}</p>
-          <p>Customer: ${(quote.customer as any).firstName} ${(quote.customer as any).lastName}</p>
-          <p>Company: ${(quote.customer as any).company || 'N/A'}</p>
-          <p>Storage Type: ${quote.storageType}</p>
-          <p>Required Space: ${quote.requiredSpace} sq ft</p>
-          <p>Warehouse: ${(quote.warehouse as any).name}</p>
-          <p>Final Price: $${quote.finalPrice}</p>
-          <p>Rejection Reason: ${reason || 'No reason provided'}</p>
-          <p>Please review and adjust the rate accordingly.</p>
-        `,
-      });
-
-      res.json({ message: "Rate rejected successfully", quote });
+      res.json(pendingQuotes);
       return;
     } catch (error) {
-      return res.status(500).json({ message: "Failed to reject rate", error });
+      return res.status(500).json({ message: "Failed to fetch pending warehouse quotes", error });
     }
   }
 }

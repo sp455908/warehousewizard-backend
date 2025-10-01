@@ -6,6 +6,10 @@ import { apiLimiter } from "./middleware/rateLimiter";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
+// cookie-parser has no bundled types; declare module or install @types.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import cookieParser from "cookie-parser";
 
 const app = express();
 
@@ -23,6 +27,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(compression());
+app.use(cookieParser());
 
 // Rate limiting
 app.use("/api", apiLimiter);

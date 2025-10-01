@@ -28,6 +28,11 @@ router.post("/:id/rate",
   rfqController.submitRate
 );
 
+router.post("/:id/rates", 
+  authorizeRoles("warehouse"), 
+  rfqController.submitRate
+);
+
 router.patch("/:id/status", 
   authorizeRoles("purchase_support", "warehouse", "admin"), 
   rfqController.updateRFQStatus
@@ -52,6 +57,12 @@ router.post("/:id/accept",
 router.post("/:id/reject", 
   authorizeRoles("warehouse"), 
   rfqController.rejectRFQ
+);
+
+// Purchase Panel: Assign warehouse to sales (A9, A10)
+router.post("/assign-warehouse-to-sales", 
+  authorizeRoles("purchase_support"), 
+  rfqController.assignWarehouseToSales
 );
 
 export default router;
