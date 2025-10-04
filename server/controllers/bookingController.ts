@@ -48,6 +48,80 @@ export class BookingController {
     }
   }
 
+  async submitBookingForm(req: AuthenticatedRequest, res: Response) {
+    try {
+      const authUserId = req.user?.id;
+      const formData = req.body;
+      
+      console.log("[DEBUG] Booking form submission:", {
+        userId: authUserId,
+        quoteId: formData.quoteId,
+        warehouseType: formData.warehouseType,
+        formData: formData
+      });
+
+      // Get the quote to extract necessary information
+      const quote = await prisma.quote.findUnique({
+        where: { id: formData.quoteId },
+        include: { warehouse: true }
+      });
+
+      if (!quote) {
+        return res.status(404).json({ message: "Quote not found" });
+      }
+
+      if (quote.customerId !== authUserId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Create booking
+      const booking = await prisma.booking.create({
+        data: {
+          quoteId: formData.quoteId,
+          customerId: authUserId,
+          warehouseId: quote.warehouseId!,
+          status: 'pending',
+          startDate: new Date(),
+          endDate: new Date(Date.now() + (formData.storagePeriod || 30) * 24 * 60 * 60 * 1000),
+          totalAmount: quote.finalPrice || 0,
+        }
+      });
+
+      // Store form data in FormSubmission table
+      await prisma.formSubmission.create({
+        data: {
+          customerId: authUserId,
+          warehouseId: quote.warehouseId!,
+          quoteId: formData.quoteId,
+          type: formData.warehouseType as any, // Map to FormType enum
+          data: formData
+        }
+      });
+
+      // Update quote status to indicate booking form has been submitted
+      await prisma.quote.update({
+        where: { id: formData.quoteId },
+        data: { status: 'booking_confirmed' }
+      });
+
+      // Send confirmation notification
+      await notificationService.sendBookingConfirmationNotification(
+        (req.user as any).email,
+        booking.id
+      );
+
+      res.status(201).json({ 
+        message: "Booking form submitted successfully", 
+        booking,
+        quote: { id: quote.id, status: 'booking_confirmed' }
+      });
+      return;
+    } catch (error) {
+      console.error("[ERROR] Booking form submission failed:", error);
+      return res.status(500).json({ message: "Failed to submit booking form", error });
+    }
+  }
+
   async getBookings(req: AuthenticatedRequest, res: Response) {
     try {
       const user = req.user! as any;

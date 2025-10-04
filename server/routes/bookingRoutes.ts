@@ -17,6 +17,13 @@ const insertBookingSchema = z.object({
   approvedBy: z.string().optional(),
 });
 
+// Schema for booking form submission (with cargo details)
+const bookingFormSchema = z.object({
+  quoteId: z.string(),
+  warehouseType: z.string(),
+  // Allow any additional fields from the booking form
+}).passthrough();
+
 // All booking routes require authentication
 router.use(authenticateToken);
 
@@ -25,6 +32,7 @@ router.get("/", bookingController.getBookings);
 router.get("/requests", bookingController.getBookingRequests);
 router.get("/:id", bookingController.getBookingById);
 router.post("/", validateRequest(insertBookingSchema), bookingController.createBooking);
+router.post("/form", validateRequest(bookingFormSchema), bookingController.submitBookingForm);
 router.post("/requests/:id/process", bookingController.processQuoteRequest);
 
 // Status-specific routes

@@ -164,6 +164,13 @@ export class DeliveryRequestController {
         }
       });
 
+      console.log("Delivery request approved:", {
+        id: deliveryRequest.id,
+        bookingId: deliveryRequest.bookingId,
+        customerId: deliveryRequest.customerId,
+        warehouseId: deliveryRequest.booking?.warehouseId
+      });
+
       // Create delivery advice (C26 → Delivery Advice)
       const deliveryAdvice = await prisma.deliveryAdvice.create({
         data: {
@@ -176,6 +183,32 @@ export class DeliveryRequestController {
           instructions: `Delivery approved by supervisor. Original request: ${deliveryRequest.id}`
         }
       });
+
+      // Automatically create delivery order from delivery advice
+      const orderNumber = `DO-${Date.now()}-${deliveryRequest.bookingId.slice(-6)}`;
+      
+      try {
+        const deliveryOrder = await prisma.deliveryOrder.create({
+          data: {
+            deliveryAdviceId: deliveryAdvice.id,
+            bookingId: deliveryRequest.bookingId,
+            customerId: deliveryRequest.customerId,
+            warehouseId: deliveryRequest.booking.warehouseId,
+            orderNumber,
+            status: "created"
+          }
+        });
+        
+        console.log("Delivery order created successfully:", {
+          orderId: deliveryOrder.id,
+          orderNumber: deliveryOrder.orderNumber,
+          warehouseId: deliveryOrder.warehouseId
+        });
+      } catch (orderError) {
+        console.error("Failed to create delivery order:", orderError);
+        // Continue with the response even if delivery order creation fails
+        // The delivery advice was created successfully
+      }
 
       // Send notification to customer
       await notificationService.sendEmail({
@@ -195,15 +228,16 @@ export class DeliveryRequestController {
       // Send notification to warehouse
       await notificationService.sendEmail({
         to: "warehouse@example.com", // TODO: Get actual warehouse email
-        subject: `Delivery Advice Created - Booking ${deliveryRequest.bookingId}`,
+        subject: `Delivery Order Created - ${orderNumber}`,
         html: `
-          <h2>Delivery Advice Created</h2>
-          <p>A delivery advice has been created for the following booking.</p>
+          <h2>Delivery Order Created</h2>
+          <p>A delivery order has been created for the following booking.</p>
+          <p><strong>Order Number:</strong> ${orderNumber}</p>
           <p><strong>Booking ID:</strong> ${deliveryRequest.bookingId}</p>
           <p><strong>Customer:</strong> ${deliveryRequest.booking.customer.firstName} ${deliveryRequest.booking.customer.lastName}</p>
           <p><strong>Delivery Address:</strong> ${deliveryRequest.deliveryAddress}</p>
           <p><strong>Preferred Date:</strong> ${deliveryRequest.preferredDate.toLocaleDateString()}</p>
-          <p>Please prepare the delivery order.</p>
+          <p>Please acknowledge and execute this delivery order.</p>
         `,
       });
 

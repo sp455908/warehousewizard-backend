@@ -495,8 +495,8 @@ export class QuoteController {
         return res.status(404).json({ message: "Quote not found" });
       }
 
-      // Only allow from quoted (i.e., after sales rate confirmation)
-      if (existing.status !== "quoted") {
+      // Only allow from quoted or rate_confirmed (i.e., after sales rate confirmation)
+      if (!["quoted", "rate_confirmed"].includes(existing.status)) {
         return res.status(409).json({ message: "Quote is not awaiting supervisor review", currentStatus: existing.status });
       }
 

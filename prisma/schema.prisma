@@ -218,21 +218,17 @@ model RFQ {
 }
 
 model Rate {
-  id                String     @id @default(uuid())
-  rfqId             String
-  warehouseId       String
-  baseRate          Float
-  surcharges        Json?
-  totalRate         Float
-  validityDays      Int
-  capacityConfirmed Boolean    @default(false)
-  tat               String?
-  notes             String?
-  status            RateStatus @default(pending)
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
-  rfq               RFQ        @relation(fields: [rfqId], references: [id], onDelete: Cascade)
-  warehouse         Warehouse  @relation(fields: [warehouseId], references: [id])
+  id                   String     @id @default(uuid())
+  rfqId                String
+  warehouseId          String
+  rate                 Float
+  termsAndConditions   String?
+  remark               String?
+  status               RateStatus @default(pending)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+  rfq                  RFQ        @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  warehouse            Warehouse  @relation(fields: [warehouseId], references: [id])
 
   @@index([rfqId])
   @@index([status])
@@ -321,8 +317,13 @@ model DeliveryReport {
   deliveredAt     DateTime
   pod             String?
   grn             String?
-  quantities      Json?
+  quantities      Int?
   exceptions      String?
+  // Dispatch Details
+  quantityDispatched    String?
+  vehicleNumber         String?
+  driverContactNumber   String?
+  dispatchDate          DateTime?
   status          DeliveryReportStatus @default(created)
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt

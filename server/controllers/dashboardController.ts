@@ -238,7 +238,7 @@ export class DashboardController {
           return [];
         }),
         prisma.quote.findMany({ 
-          where: { status: { in: ["quoted", "customer_confirmation_pending", "customer_confirmed"] } },
+          where: { status: { in: ["quoted", "customer_confirmation_pending", "customer_confirmed", "rate_confirmed", "approved", "booking_confirmed"] } },
           orderBy: { createdAt: 'desc' },
           include: { 
             customer: { select: { firstName: true, lastName: true, email: true, company: true } },
@@ -283,6 +283,10 @@ export class DashboardController {
         allCargoDispatches: allCargoDispatches.length,
         stats
       });
+      
+      // Debug: Check specific rate_confirmed quotes
+      const rateConfirmedQuotes = pendingApprovals.filter((q: any) => q.status === 'rate_confirmed');
+      console.log("[DEBUG] Rate confirmed quotes found:", rateConfirmedQuotes.length);
 
       res.json({
         stats,

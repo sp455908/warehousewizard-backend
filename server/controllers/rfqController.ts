@@ -171,10 +171,10 @@ export class RFQController {
   async submitRate(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { baseRate, surcharges, totalRate, validityDays, capacityConfirmed, tat, notes } = req.body;
+      const { rate, termsAndConditions, remark } = req.body;
       
       console.log(`[DEBUG] submitRate called for RFQ ${id}`);
-      console.log(`[DEBUG] Rate data:`, { baseRate, surcharges, totalRate, validityDays, capacityConfirmed, tat, notes });
+      console.log(`[DEBUG] Rate data:`, { rate, termsAndConditions, remark });
       
       // Only warehouse can submit rates
       if ((req.user! as any).role !== "warehouse") {
@@ -204,17 +204,13 @@ export class RFQController {
       }
 
       // Create rate
-      const rate = await prisma.rate.create({
+      const rateRecord = await prisma.rate.create({
         data: {
           rfqId: id,
           warehouseId: rfq.warehouseId,
-          baseRate,
-          surcharges: surcharges || {},
-          totalRate,
-          validityDays,
-          capacityConfirmed,
-          tat,
-          notes,
+          rate: parseFloat(rate),
+          termsAndConditions: termsAndConditions || null,
+          remark: remark || null,
           status: "pending",
         },
         include: {
@@ -250,16 +246,14 @@ export class RFQController {
         subject: `Rate Received - RFQ ${id}`,
         html: `
           <h2>Rate Received</h2>
-          <p>Warehouse ${(rate.warehouse as any).name} has submitted a rate for RFQ ${id}.</p>
-          <p>Base Rate: ₹${baseRate}</p>
-          <p>Total Rate: ₹${totalRate}</p>
-          <p>Validity: ${validityDays} days</p>
-          <p>Capacity Confirmed: ${capacityConfirmed ? 'Yes' : 'No'}</p>
-          <p>TAT: ${tat}</p>
+          <p>Warehouse ${(rateRecord.warehouse as any).name} has submitted a rate for RFQ ${id}.</p>
+          <p>Rate: ₹${rate}</p>
+          <p>Terms & Conditions: ${termsAndConditions || 'N/A'}</p>
+          <p>Remark: ${remark || 'N/A'}</p>
         `,
       });
 
-      res.status(201).json(rate);
+      res.status(201).json(rateRecord);
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to submit rate", error });

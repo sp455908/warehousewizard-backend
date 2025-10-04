@@ -77,6 +77,19 @@ export class DeliveryAdviceController {
         }
       });
 
+      // Automatically create delivery order from delivery advice
+      const orderNumber = `DO-${Date.now()}-${bookingId.slice(-6)}`;
+      const deliveryOrder = await prisma.deliveryOrder.create({
+        data: {
+          deliveryAdviceId: deliveryAdvice.id,
+          bookingId,
+          customerId: booking.customerId,
+          warehouseId: booking.warehouseId,
+          orderNumber,
+          status: "created"
+        }
+      });
+
       // Send notification to customer and warehouse (non-blocking)
       notificationService.sendEmail({
         to: (deliveryAdvice.customer as any).email,
@@ -99,10 +112,11 @@ export class DeliveryAdviceController {
 
       notificationService.sendEmail({
         to: "warehouse@example.com", // TODO: Get actual warehouse email
-        subject: `Delivery Advice Created - Booking ${bookingId}`,
+        subject: `Delivery Order Created - ${orderNumber}`,
         html: `
-          <h2>Delivery Advice Created</h2>
-          <p>Delivery advice has been created for booking ${bookingId}.</p>
+          <h2>Delivery Order Created</h2>
+          <p>A delivery order has been created for booking ${bookingId}.</p>
+          <p><strong>Order Number:</strong> ${orderNumber}</p>
           <p>Customer: ${(booking.customer as any).firstName} ${(booking.customer as any).lastName}</p>
           <p>Delivery Address: ${deliveryAddress}</p>
           <p>Preferred Date: ${new Date(preferredDate).toLocaleDateString()}</p>
@@ -113,10 +127,11 @@ export class DeliveryAdviceController {
           <p>Required Qty: ${deliveryAdvice.requiredQuantity ?? 'NA'}</p>
           <p>Billing Party: ${deliveryAdvice.billingParty ?? 'NA'}</p>
           <p>Remarks: ${deliveryAdvice.remarks ?? 'NA'}</p>
+          <p>Please acknowledge and execute this delivery order.</p>
         `,
       }).catch(() => {});
 
-      res.status(201).json(deliveryAdvice);
+      res.status(201).json({ deliveryAdvice, deliveryOrder });
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to create delivery advice", error });
