@@ -4,7 +4,7 @@ import { prisma } from "../config/prisma";
 
 export class PanelDashboardController {
   // Get dashboard data for Customer Panel
-  async getCustomerDashboard(req: AuthenticatedRequest, res: Response) {
+  async getCustomerDashboard(req: AuthenticatedRequest, res: Response): Promise<Response> {
     try {
       const user = req.user! as any;
       const customerId = user.id;
@@ -31,7 +31,7 @@ export class PanelDashboardController {
         take: 10
       });
 
-      res.json({
+      return res.json({
         role: "customer",
         user: {
           id: user.id,
@@ -59,7 +59,7 @@ export class PanelDashboardController {
   }
 
   // Get dashboard data for Purchase Support Panel
-  async getPurchaseDashboard(req: AuthenticatedRequest, res: Response) {
+  async getPurchaseDashboard(req: AuthenticatedRequest, res: Response): Promise<Response> {
     try {
       const user = req.user! as any;
 
@@ -97,7 +97,7 @@ export class PanelDashboardController {
         take: 20
       });
 
-      res.json({
+      return res.json({
         role: "purchase_support",
         user: {
           id: user.id,
@@ -125,7 +125,7 @@ export class PanelDashboardController {
   }
 
   // Get dashboard data for Sales Support Panel
-  async getSalesDashboard(req: AuthenticatedRequest, res: Response) {
+  async getSalesDashboard(req: AuthenticatedRequest, res: Response): Promise<Response> {
     try {
       const user = req.user! as any;
 
@@ -150,7 +150,7 @@ export class PanelDashboardController {
         take: 20
       });
 
-      res.json({
+      return res.json({
         role: "sales_support",
         user: {
           id: user.id,
@@ -178,7 +178,7 @@ export class PanelDashboardController {
   }
 
   // Get dashboard data for Supervisor Panel
-  async getSupervisorDashboard(req: AuthenticatedRequest, res: Response) {
+  async getSupervisorDashboard(req: AuthenticatedRequest, res: Response): Promise<Response> {
     try {
       const user = req.user! as any;
 
@@ -199,7 +199,7 @@ export class PanelDashboardController {
         bookings = [];
       }
 
-      res.json({
+      return res.json({
         role: "supervisor",
         user: {
           id: user.id,
@@ -249,7 +249,7 @@ export class PanelDashboardController {
   }
 
   // Get dashboard data for Warehouse Panel
-  async getWarehouseDashboard(req: AuthenticatedRequest, res: Response) {
+  async getWarehouseDashboard(req: AuthenticatedRequest, res: Response): Promise<Response> {
     try {
       const user = req.user! as any;
 
@@ -264,7 +264,7 @@ export class PanelDashboardController {
         take: 20
       });
 
-      res.json({
+      return res.json({
         role: "warehouse",
         user: {
           id: user.id,

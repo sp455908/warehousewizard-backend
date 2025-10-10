@@ -289,7 +289,7 @@ export class RFQController {
         include: {
           warehouse: { select: { name: true, location: true, city: true, state: true } }
         },
-        orderBy: { totalRate: 'asc' }
+        orderBy: { rate: 'asc' }
       });
 
       res.json(rates);
@@ -324,7 +324,7 @@ export class RFQController {
         where: { id: (selectedRate.rfq as any).quoteId },
         data: {
           warehouseId: selectedRate.warehouseId,
-          finalPrice: selectedRate.totalRate,
+          finalPrice: selectedRate.rate,
           status: "rate_confirmed"
         }
       });
@@ -522,7 +522,7 @@ export class RFQController {
         where: { id: rate.rfq.quoteId },
         data: {
           warehouseId: rate.warehouseId,
-          finalPrice: rate.totalRate,
+          finalPrice: rate.rate,
           assignedTo: salesUserId,
           status: "processing"
         }
@@ -537,7 +537,7 @@ export class RFQController {
           <p>A warehouse has been assigned to you for quote processing.</p>
           <p>Quote ID: ${rate.rfq.quoteId}</p>
           <p>Warehouse: ${(rate.warehouse as any).name}</p>
-          <p>Rate: ₹${rate.totalRate}</p>
+          <p>Rate: ₹${rate.rate}</p>
           <p>Please review and add margin before sending to customer.</p>
         `,
       });
