@@ -1,7 +1,6 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import routes from "./routes";
-import { verifyPostgresConnection } from "./config/prisma";
 import { apiLimiter } from "./middleware/rateLimiter";
 import cors from "cors";
 import helmet from "helmet";
@@ -19,11 +18,25 @@ app.set('trust proxy', 1);
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || "http://localhost:5173",
-    "https://warehousewizard-frontend.onrender.com",
-    "https://client-taupe-psi.vercel.app"
-  ],
+  origin: (origin, callback) => {
+    // Allow requests from web frontends in dev/prod and also from native apps (no Origin)
+    const whitelist = [
+      process.env.FRONTEND_URL || "http://localhost:5173",
+      "https://warehousewizard-frontend.onrender.com",
+      "https://client-taupe-psi.vercel.app"
+    ];
+
+    if (!origin) {
+      // React Native fetch often has no Origin header
+      return callback(null, true);
+    }
+
+    if (whitelist.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
   credentials: true,
 }));
 app.use(compression());
@@ -67,9 +80,6 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Connect to PostgreSQL database via Prisma
-  await verifyPostgresConnection();
-  
   // Setup API routes
   app.use("/api", routes);
   

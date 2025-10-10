@@ -84,6 +84,7 @@ export class AuthController {
       res.status(201).json({
         message: "Registration successful",
         user: userResponse,
+        token, // include JWT for mobile clients that can't use cookies easily
       });
       return;
     } catch (error) {
@@ -133,6 +134,7 @@ export class AuthController {
       res.json({
         message: "Login successful",
         user: userResponse,
+        token, // include JWT for mobile clients that can't use cookies easily
       });
       return;
     } catch (error) {
