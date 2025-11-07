@@ -48,6 +48,14 @@ router.get("/role/:role", authorizeRoles("admin", "purchase_support"), userContr
 router.post("/:id/activate", authorizeRoles("admin"), userController.activateUser);
 router.post("/:id/deactivate", authorizeRoles("admin"), userController.deactivateUser);
 
+// Admin password change for a user
+router.post(":/id/change-password-admin".replace(':','/:id'), authorizeRoles("admin"), userController.changePasswordAdmin);
+
+// Admin: session management for a user
+import { sessionController } from "../controllers/sessionController";
+router.get("/:id/sessions", authorizeRoles("admin"), sessionController.listUserSessions.bind(sessionController));
+router.delete("/sessions/:sessionId", authorizeRoles("admin"), sessionController.killSession.bind(sessionController));
+
 // Guest customer verification
 router.post("/:id/verify", authorizeRoles("purchase_support", "admin"), userController.verifyGuestCustomer);
 router.get("/guests/pending", authorizeRoles("purchase_support", "admin"), userController.getPendingGuestCustomers);

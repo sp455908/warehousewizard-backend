@@ -33,6 +33,8 @@ model User {
   otpVerifications OtpVerification[]     @relation("UserOtp")
   assignedQuotes   Quote[]               @relation("AssignedQuotes")
   quotes           Quote[]               @relation("UserQuotes")
+  ownedWarehouses  Warehouse[]           @relation("WarehouseOwner")
+  sessions         Session[]
 }
 
 model OtpVerification {
@@ -61,6 +63,7 @@ model Warehouse {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   imageUrl        String?
+  ownerId         String?
   bookings        Booking[]
   cartingDetails  CartingDetail[]
   deliveryOrders  DeliveryOrder[]
@@ -69,6 +72,7 @@ model Warehouse {
   quotes          Quote[]
   rfqs            RFQ[]
   rates           Rate[]
+  owner           User?            @relation("WarehouseOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 }
 
 model Quote {
@@ -83,10 +87,9 @@ model Quote {
   assignedTo          String?
   finalPrice          Float?
   warehouseId         String?
-  // Workflow state tracking
-  currentWorkflowStep String?          // Current workflow step (C1, C2, etc.)
-  flowType            String?          // FLOW_A_SAME_WAREHOUSE or FLOW_B_MULTIPLE_WAREHOUSES
-  workflowHistory     Json?            // Store workflow step history
+  currentWorkflowStep String?
+  flowType            String?
+  workflowHistory     Json?
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
   bookings            Booking[]
@@ -197,6 +200,23 @@ model WorkflowEvent {
   createdAt      DateTime @default(now())
 }
 
+model Session {
+  id        String    @id @default(uuid())
+  userId    String
+  token     String    @unique
+  userAgent String?
+  ipAddress String?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  lastSeen  DateTime  @default(now())
+  expiresAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isActive])
+}
+
 model RFQ {
   id          String    @id @default(uuid())
   quoteId     String
@@ -218,17 +238,17 @@ model RFQ {
 }
 
 model Rate {
-  id                   String     @id @default(uuid())
-  rfqId                String
-  warehouseId          String
-  rate                 Float
-  termsAndConditions   String?
-  remark               String?
-  status               RateStatus @default(pending)
-  createdAt            DateTime   @default(now())
-  updatedAt            DateTime   @updatedAt
-  rfq                  RFQ        @relation(fields: [rfqId], references: [id], onDelete: Cascade)
-  warehouse            Warehouse  @relation(fields: [warehouseId], references: [id])
+  id                 String     @id @default(uuid())
+  rfqId              String
+  warehouseId        String
+  rate               Float
+  termsAndConditions String?
+  remark             String?
+  status             RateStatus @default(pending)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  rfq                RFQ        @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  warehouse          Warehouse  @relation(fields: [warehouseId], references: [id])
 
   @@index([rfqId])
   @@index([status])
@@ -258,25 +278,24 @@ model CartingDetail {
 }
 
 model DeliveryAdvice {
-  id              String               @id @default(uuid())
-  bookingId       String
-  customerId      String
-  deliveryAddress String
-  preferredDate   DateTime
-  urgency         DeliveryUrgency      @default(standard)
-  instructions    String?
-  // Added fields for Delivery Advice form
-  bookingNumber   String?
+  id                String               @id @default(uuid())
+  bookingId         String
+  customerId        String
+  deliveryAddress   String
+  preferredDate     DateTime
+  urgency           DeliveryUrgency      @default(standard)
+  instructions      String?
+  bookingNumber     String?
   availableQuantity Int?
   requiredQuantity  Float?
   billingParty      String?
   remarks           String?
-  status          DeliveryAdviceStatus @default(created)
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  booking         Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  customer        User                 @relation("DeliveryAdviceCustomer", fields: [customerId], references: [id])
-  deliveryOrders  DeliveryOrder[]
+  status            DeliveryAdviceStatus @default(created)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  booking           Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customer          User                 @relation("DeliveryAdviceCustomer", fields: [customerId], references: [id])
+  deliveryOrders    DeliveryOrder[]
 
   @@index([bookingId])
   @@index([customerId])
@@ -308,29 +327,28 @@ model DeliveryOrder {
 }
 
 model DeliveryReport {
-  id              String               @id @default(uuid())
-  deliveryOrderId String
-  bookingId       String
-  customerId      String
-  warehouseId     String
-  reportNumber    String               @unique
-  deliveredAt     DateTime
-  pod             String?
-  grn             String?
-  quantities      Int?
-  exceptions      String?
-  // Dispatch Details
-  quantityDispatched    String?
-  vehicleNumber         String?
-  driverContactNumber   String?
-  dispatchDate          DateTime?
-  status          DeliveryReportStatus @default(created)
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  booking         Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  customer        User                 @relation("DeliveryReportCustomer", fields: [customerId], references: [id])
-  deliveryOrder   DeliveryOrder        @relation(fields: [deliveryOrderId], references: [id], onDelete: Cascade)
-  warehouse       Warehouse            @relation(fields: [warehouseId], references: [id])
+  id                  String               @id @default(uuid())
+  deliveryOrderId     String
+  bookingId           String
+  customerId          String
+  warehouseId         String
+  reportNumber        String               @unique
+  deliveredAt         DateTime
+  pod                 String?
+  grn                 String?
+  quantities          Int?
+  exceptions          String?
+  quantityDispatched  String?
+  vehicleNumber       String?
+  driverContactNumber String?
+  dispatchDate        DateTime?
+  status              DeliveryReportStatus @default(created)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  booking             Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customer            User                 @relation("DeliveryReportCustomer", fields: [customerId], references: [id])
+  deliveryOrder       DeliveryOrder        @relation(fields: [deliveryOrderId], references: [id], onDelete: Cascade)
+  warehouse           Warehouse            @relation(fields: [warehouseId], references: [id])
 
   @@index([bookingId])
   @@index([customerId])

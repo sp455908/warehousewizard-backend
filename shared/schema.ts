@@ -81,6 +81,7 @@ export interface IWarehouse extends Document {
   features?: any;
   isActive: boolean;
   imageUrl?: string;
+  ownerId?: string; // Warehouse owner/manager
 }
 
 const warehouseSchema = new Schema<IWarehouse>({
@@ -99,7 +100,8 @@ const warehouseSchema = new Schema<IWarehouse>({
   features: { type: Schema.Types.Mixed },
   imageUrl: { type: String },
   isActive: { type: Boolean, default: true },
-});
+  ownerId: { type: String }, // Warehouse owner/manager
+}, { timestamps: true });
 
 export const WarehouseModel = mongoose.model<IWarehouse>("Warehouse", warehouseSchema);
 

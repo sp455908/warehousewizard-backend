@@ -238,7 +238,7 @@ export class DashboardController {
           return [];
         }),
         prisma.quote.findMany({ 
-          where: { status: { in: ["quoted", "customer_confirmation_pending", "customer_confirmed", "rate_confirmed", "approved", "booking_confirmed"] } },
+          where: { status: { in: ["supervisor_review_pending", "quoted", "customer_confirmation_pending", "customer_confirmed", "rate_confirmed", "approved", "booking_confirmed"] } },
           orderBy: { createdAt: 'desc' },
           include: { 
             customer: { select: { firstName: true, lastName: true, email: true, company: true } },
@@ -545,7 +545,7 @@ export class DashboardController {
 
   async getSupervisorStats() {
     const [pendingApprovals, confirmedBookings, completedBookings, pendingCargoDispatches] = await Promise.all([
-      prisma.quote.count({ where: { status: { in: ["quoted", "customer_confirmation_pending", "customer_confirmed"] } } }),
+      prisma.quote.count({ where: { status: { in: ["supervisor_review_pending", "quoted", "customer_confirmation_pending", "customer_confirmed"] } } }),
       prisma.booking.count({ where: { status: "confirmed" } }),
       prisma.booking.count({ where: { status: "completed" } }),
       prisma.cargoDispatchDetail.count({ where: { status: "submitted" } })

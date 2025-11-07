@@ -105,6 +105,35 @@ export class UserController {
     }
   }
 
+  // Admin: force change password for a user
+  async changePasswordAdmin(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { newPassword } = req.body;
+      if (!newPassword || newPassword.length < 6) {
+        return res.status(400).json({ message: "New password must be at least 6 characters" });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 12);
+      await prisma.user.update({ where: { id }, data: { passwordHash: hashedPassword } });
+
+      // Optionally notify user
+      const user = await prisma.user.findUnique({ where: { id } });
+      if (user) {
+        await notificationService.sendEmail({
+          to: user.email,
+          subject: "Your password was changed",
+          html: `<p>Your account password was changed by an administrator. If this was not you, please contact support immediately.</p>`,
+        });
+      }
+
+      return res.json({ message: "Password changed successfully" });
+    } catch (err) {
+      console.error("Admin change password error:", err);
+      return res.status(500).json({ message: "Failed to change password" });
+    }
+  }
+
   async getAllUsers(req: AuthenticatedRequest, res: Response) {
     try {
       const { role, isActive, page = 1, limit = 20 } = req.query;
@@ -252,6 +281,7 @@ export class UserController {
   async updateUser(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
+
       const updateData = req.body;
 
       // SECURITY: Prevent admin role assignment through updates
@@ -319,8 +349,16 @@ export class UserController {
         return res.status(400).json({ message: "Cannot delete your own account" });
       }
 
-      // Check if user exists and is an admin
-      const existingUser = await prisma.user.findUnique({ where: { id } });
+      // Check if user exists and get their role
+      const existingUser = await prisma.user.findUnique({ 
+        where: { id },
+        include: {
+          ownedWarehouses: {
+            select: { id: true, name: true }
+          }
+        }
+      });
+      
       if (!existingUser) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -330,9 +368,21 @@ export class UserController {
         return res.status(403).json({ message: "Admin users cannot be deleted" });
       }
 
+      // If deleting a warehouse user, also delete their warehouses
+      if (existingUser.role === "warehouse" && existingUser.ownedWarehouses.length > 0) {
+        // Delete all warehouses owned by this user
+        await prisma.warehouse.deleteMany({
+          where: { ownerId: id }
+        });
+      }
+
       await prisma.user.delete({ where: { id } });
 
-      res.json({ message: "User deleted successfully" });
+      const message = existingUser.role === "warehouse" && existingUser.ownedWarehouses.length > 0
+        ? `User and ${existingUser.ownedWarehouses.length} associated warehouses deleted successfully`
+        : "User deleted successfully";
+
+      res.json({ message });
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to delete user", error });

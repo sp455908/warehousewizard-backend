@@ -61,6 +61,15 @@ router.post(
 
 router.get("/", quoteController.getQuotes);
 router.get("/role-specific", quoteController.getQuotesForRole);
+// Debug summary for quotes (requires authentication) — shows counts per status and sample IDs
+router.get(
+  "/debug-summary",
+  (req: AuthenticatedRequest, res: Response, next) => {
+    // simple auth passthrough (authenticateToken is applied globally for this router)
+    next();
+  },
+  quoteController.debugSummary
+);
 router.get("/:id", quoteController.getQuoteById);
 router.get("/:id/calculate-price", quoteController.calculateQuotePrice);
 

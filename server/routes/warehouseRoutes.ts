@@ -15,7 +15,8 @@ const insertWarehouseSchema = z.object({
   totalSpace: z.number().positive(),
   availableSpace: z.number().positive(),
   pricePerSqFt: z.number().positive(),
-  features: z.any().optional(),
+  features: z.array(z.string()).optional().default([]),
+  imageUrl: z.string().optional(),
   isActive: z.boolean().default(true),
 });
 
@@ -28,29 +29,35 @@ const updateWarehouseSchema = z.object({
   totalSpace: z.number().positive().optional(),
   availableSpace: z.number().positive().optional(),
   pricePerSqFt: z.number().positive().optional(),
-  features: z.any().optional(),
+  features: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
   imageUrl: z.string().optional(),
 });
 
-// Public routes
+// Public routes (no authentication required)
 router.get("/", warehouseController.getAllWarehouses);
 router.get("/search", warehouseController.searchWarehouses);
 router.get("/types", warehouseController.getWarehouseTypes);
 router.get("/type/:type", warehouseController.getWarehousesByType);
 router.get("/location/:city/:state", warehouseController.getWarehousesByLocation);
-router.get("/:id", warehouseController.getWarehouseById);
 
-// Protected routes
+// Protected routes (authentication required)
 router.use(authenticateToken);
+
+// Warehouse ownership routes (must come before /:id route)
+router.get(
+  "/my-warehouses",
+  authorizeRoles("warehouse", "admin"),
+  warehouseController.getMyWarehouses
+);
 
 // Check availability (authenticated users only)
 router.post("/:id/check-availability", warehouseController.checkAvailability);
 
-// Admin and warehouse management routes
+// Warehouse management routes (only warehouse owners can create)
 router.post(
   "/",
-  authorizeRoles("admin", "warehouse", "supervisor"),
+  authorizeRoles("warehouse"),
   validateRequest(insertWarehouseSchema),
   warehouseController.createWarehouse
 );
@@ -70,8 +77,23 @@ router.patch(
 
 router.delete(
   "/:id",
-  authorizeRoles("admin"),
+  authorizeRoles("admin", "warehouse"),
   warehouseController.deleteWarehouse
+);
+
+// This route must come last to avoid conflicts with specific routes
+router.get("/:id", warehouseController.getWarehouseById);
+
+router.post(
+  "/transfer-ownership",
+  authorizeRoles("admin"),
+  warehouseController.transferOwnership
+);
+
+router.get(
+  "/owners",
+  authorizeRoles("admin"),
+  warehouseController.getWarehouseOwners
 );
 
 export default router;

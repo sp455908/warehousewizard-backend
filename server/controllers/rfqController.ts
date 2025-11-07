@@ -100,24 +100,33 @@ export class RFQController {
   async getRFQs(req: AuthenticatedRequest, res: Response) {
     try {
       const user = req.user! as any;
-      let rfqs;
+      let rfqs: any[];
 
       if (user.role === "warehouse") {
         // Get RFQs for warehouse users
-        // TODO: Link warehouse users to specific warehouses; currently returns all RFQs
-        // Return all statuses so the UI can compute Pending/Responded/Expired
-        rfqs = await prisma.rFQ.findMany({
-          include: {
-            quote: { 
-              include: { 
-                customer: { select: { firstName: true, lastName: true, email: true, company: true } }
-              }
-            },
-            warehouse: { select: { name: true, location: true } },
-            rates: true
-          },
-          orderBy: { createdAt: 'desc' }
+        const userWarehouses = await prisma.warehouse.findMany({
+          where: { ownerId: user.id },
+          select: { id: true }
         });
+        const warehouseIds = userWarehouses.map(warehouse => warehouse.id);
+        
+        if (warehouseIds.length === 0) {
+          rfqs = [];
+        } else {
+          rfqs = await prisma.rFQ.findMany({
+            where: { warehouseId: { in: warehouseIds } },
+            include: {
+              quote: { 
+                include: { 
+                  customer: { select: { firstName: true, lastName: true, email: true, company: true } }
+                }
+              },
+              warehouse: { select: { name: true, location: true, city: true, state: true, pricePerSqFt: true } },
+              rates: true
+            },
+            orderBy: { createdAt: 'desc' }
+          });
+        }
       } else {
         // Get all RFQs for purchase support, sales support, supervisor, admin
         rfqs = await prisma.rFQ.findMany({
@@ -127,14 +136,38 @@ export class RFQController {
                 customer: { select: { firstName: true, lastName: true, email: true, company: true } }
               }
             },
-            warehouse: { select: { name: true, location: true } },
+            warehouse: { select: { name: true, location: true, city: true, state: true, pricePerSqFt: true } },
             rates: true
           },
           orderBy: { createdAt: 'desc' }
         });
       }
 
-      res.json(rfqs);
+      // Calculate baseRate and totalRate for each rate in each RFQ
+      const rfqsWithCalculations = rfqs.map((rfq: any) => {
+        const ratesWithCalculations = rfq.rates.map((rate: any) => {
+          const baseRate = rfq.warehouse.pricePerSqFt * rfq.quote.requiredSpace;
+          const durationText = rfq.quote.duration || "1 month";
+          const durationMatch = durationText.match(/(\d+)/);
+          const durationValue = durationMatch ? parseInt(durationMatch[1]) : 1;
+          const durationMonths = durationText.toLowerCase().includes('month') ? durationValue : Math.ceil(durationValue / 30);
+          const totalRate = baseRate * durationMonths;
+          
+          return {
+            ...rate,
+            baseRate,
+            totalRate,
+            validityDays: 7
+          };
+        });
+
+        return {
+          ...rfq,
+          rates: ratesWithCalculations
+        };
+      });
+
+      res.json(rfqsWithCalculations);
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to fetch RFQs", error });
@@ -287,12 +320,30 @@ export class RFQController {
       const rates = await prisma.rate.findMany({
         where: { rfqId: id },
         include: {
-          warehouse: { select: { name: true, location: true, city: true, state: true } }
+          warehouse: { select: { name: true, location: true, city: true, state: true, pricePerSqFt: true } },
+          rfq: { include: { quote: { select: { requiredSpace: true, duration: true } } } }
         },
         orderBy: { rate: 'asc' }
       });
 
-      res.json(rates);
+      // Calculate baseRate and totalRate for each rate
+      const ratesWithCalculations = rates.map(rate => {
+        const baseRate = rate.warehouse.pricePerSqFt * rate.rfq.quote.requiredSpace;
+        const durationText = rate.rfq.quote.duration || "1 month";
+        const durationMatch = durationText.match(/(\d+)/);
+        const durationValue = durationMatch ? parseInt(durationMatch[1]) : 1;
+        const durationMonths = durationText.toLowerCase().includes('month') ? durationValue : Math.ceil(durationValue / 30);
+        const totalRate = baseRate * durationMonths;
+        
+        return {
+          ...rate,
+          baseRate,
+          totalRate,
+          validityDays: 7
+        };
+      });
+
+      res.json(ratesWithCalculations);
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to fetch rates", error });

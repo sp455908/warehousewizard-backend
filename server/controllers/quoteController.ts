@@ -4,6 +4,7 @@ import { prisma } from "../config/prisma";
 import { QuoteStatus } from "@prisma/client";
 import { z } from "zod";
 import { notificationService } from "../services/notificationService";
+import { cacheService } from "../services/cacheService";
 
 const insertQuoteSchema = z.object({
   customerId: z.string(),
@@ -147,6 +148,36 @@ export class QuoteController {
     }
   }
 
+  // Debugging helper: return counts and sample IDs for important statuses
+  debugSummary = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      // Ensure authenticated
+      if (!req.user) return res.sendStatus(401);
+      const statuses = [
+        'processing',
+        'supervisor_review_pending',
+        'quoted',
+        'customer_confirmation_pending',
+        'booking_confirmed',
+        'rejected'
+      ];
+
+      const result: any = {};
+      for (const status of statuses) {
+        const st = status as unknown as QuoteStatus;
+        const items = await prisma.quote.findMany({ where: { status: st }, select: { id: true }, orderBy: { createdAt: 'desc' }, take: 5 });
+        // count total separately
+        const count = await prisma.quote.count({ where: { status: st } });
+        result[status] = { count, sampleIds: items.map(i => i.id) };
+      }
+
+      res.json({ user: { id: (req.user as any).id, role: (req.user as any).role }, summary: result });
+      return;
+    } catch (error) {
+      return res.status(500).json({ message: 'Failed to fetch debug summary', error });
+    }
+  }
+
   getQuotes = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const user = req.user! as any;
@@ -191,6 +222,8 @@ export class QuoteController {
           where: {
             status: { in: [
               "processing",
+              // include quotes sales has forwarded to supervisor for review
+              "supervisor_review_pending",
               "quoted",
               "customer_confirmation_pending",
               "booking_confirmed",
@@ -495,8 +528,8 @@ export class QuoteController {
         return res.status(404).json({ message: "Quote not found" });
       }
 
-      // Only allow from quoted or rate_confirmed (i.e., after sales rate confirmation)
-      if (!["quoted", "rate_confirmed"].includes(existing.status)) {
+      // Only allow from supervisor_review_pending, quoted or rate_confirmed (i.e., after sales rate confirmation)
+      if (!["supervisor_review_pending", "quoted", "rate_confirmed"].includes(existing.status)) {
         return res.status(409).json({ message: "Quote is not awaiting supervisor review", currentStatus: existing.status });
       }
 
@@ -511,6 +544,9 @@ export class QuoteController {
           warehouse: { select: { name: true, location: true, city: true, state: true } }
         }
       });
+
+      // Invalidate customer quotes cache to ensure fresh data
+      await cacheService.invalidateUserQuotes(updated.customerId);
 
       // Optional: notify customer
       await notificationService.sendEmail({
@@ -690,6 +726,10 @@ export class QuoteController {
     try {
       const user = req.user! as any;
       const quotes = await QuoteController.getQuotesForRoleInternal(user.role, user.id);
+      console.log(`[DEBUG] getQuotesForRole - role=${user.role} userId=${user.id} found=${Array.isArray(quotes) ? quotes.length : 0}`);
+      if (Array.isArray(quotes) && quotes.length > 0) {
+        console.log(`[DEBUG] getQuotesForRole - sample IDs: ${quotes.slice(0,5).map((q:any)=>q.id).join(',')}`);
+      }
       res.json(quotes);
       return;
     } catch (error) {
@@ -845,6 +885,8 @@ export class QuoteController {
           where: {
             status: { in: [
               "processing",
+              // include quotes sales has forwarded to supervisor for review
+              "supervisor_review_pending",
               // After sales submits rate, it moves to supervisor as 'quoted'
               "quoted",
               // After supervisor approves, it becomes 'customer_confirmation_pending'
@@ -865,9 +907,10 @@ export class QuoteController {
         return await prisma.quote.findMany({
           where: {
             status: { in: [
+              "supervisor_review_pending", // Quotes from sales awaiting supervisor review
               "quoted", // Quotes from sales awaiting supervisor review
               "customer_confirmation_pending", // Quotes approved by supervisor, awaiting customer
-              "customer_confirmation_pending", // Customer confirmed quotes awaiting supervisor approval (Step 7)
+              "customer_confirmed", // Customer confirmed quotes awaiting supervisor approval (Step 7)
               "booking_confirmed", // Confirmed bookings
               "rejected" // Rejected quotes
             ] }
@@ -964,26 +1007,27 @@ export class QuoteController {
         data: {
           finalPrice,
           specialRequirements: notes ? `${quote.specialRequirements || ''}\nSales Notes: ${notes}` : quote.specialRequirements,
-          // Move to supervisor/customer step per workflow
-          status: "customer_confirmation_pending"
+          // Move to supervisor review step per workflow
+          status: "supervisor_review_pending"
         },
         include: { customer: true }
       });
 
-      // Send notification to customer
+      // Send notification to supervisor
       await notificationService.sendEmail({
-        to: (updatedQuote.customer as any).email,
-        subject: `Quote Ready - ${id}`,
+        to: "supervisor@warehousewizard.com", // TODO: Get actual supervisor email
+        subject: `Quote Ready for Supervisor Review - ${id}`,
         html: `
-          <h2>Your Quote is Ready</h2>
-          <p>We have prepared a quote for your storage requirements.</p>
+          <h2>Quote Ready for Supervisor Review</h2>
+          <p>A quote has been prepared by sales support and requires your review and approval.</p>
           <p>Quote ID: ${id}</p>
+          <p>Customer: ${(updatedQuote.customer as any).firstName} ${(updatedQuote.customer as any).lastName}</p>
           <p>Final Price: ₹${finalPrice}</p>
-          <p>Please review and confirm if you agree with the rate.</p>
+          <p>Please review and approve before sending to customer.</p>
         `,
       });
 
-      res.json({ message: "Rate updated and sent to customer", quote: updatedQuote });
+      res.json({ message: "Rate updated and sent to supervisor for review", quote: updatedQuote });
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to update rate", error });

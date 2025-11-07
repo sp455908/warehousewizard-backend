@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { notificationService } from "../services/notificationService";
 import { generateToken } from "../middleware/auth";
+import { sessionService } from "../services/sessionService";
 import { prisma } from "../config/prisma";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
@@ -58,6 +59,16 @@ export class AuthController {
 
       // Generate JWT token
       const token = generateToken(user.id);
+
+      // Persist session record
+      try {
+        const userAgent = req.headers["user-agent"] as string | undefined;
+        const ipAddress = req.ip;
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await sessionService.createSession({ userId: user.id, token, userAgent, ipAddress, expiresAt });
+      } catch (err) {
+        console.warn("Failed to persist session:", err);
+      }
 
       // Send welcome email
       await notificationService.sendEmail({
@@ -117,6 +128,16 @@ export class AuthController {
       // Generate JWT token
       const token = generateToken(user.id);
 
+      // Persist session record
+      try {
+        const userAgent = req.headers["user-agent"] as string | undefined;
+        const ipAddress = req.ip;
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await sessionService.createSession({ userId: user.id, token, userAgent, ipAddress, expiresAt });
+      } catch (err) {
+        console.warn("Failed to persist session:", err);
+      }
+
       // Update last login (optional)
       await prisma.user.update({ where: { id: user.id }, data: { updatedAt: new Date() } });
 
@@ -152,6 +173,22 @@ export class AuthController {
         secure: isProduction,
         sameSite: isProduction ? "none" : "lax",
       });
+
+      // Also mark session inactive if token provided
+      try {
+        const cookieToken = (req as any).cookies?.["auth_token"] as string | undefined;
+        const authHeader = req.headers["authorization"];
+        const bearerToken = authHeader && (authHeader as string).split(" ")[1];
+        const token = bearerToken || cookieToken;
+        if (token) {
+          const sess = await sessionService.findSessionByToken(token);
+          if (sess) {
+            await sessionService.killSessionById((sess as any).id);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to clear session on logout:", err);
+      }
       return res.json({ message: "Logout successful" });
     } catch (error) {
       return res.status(500).json({ message: "Logout failed", error });

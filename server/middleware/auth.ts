@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { prisma } from "../config/prisma";
+import { sessionService } from "../services/sessionService";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 
@@ -24,9 +25,18 @@ export const authenticateToken = async (
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId }
-    });
+    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+
+    // Verify session is active (if we persist sessions)
+    try {
+      const sess = await sessionService.findSessionByToken(token);
+      if (!sess || !(sess as any).isActive) {
+        return res.status(401).json({ message: "Session inactive or invalid" });
+      }
+    } catch (err) {
+      // If session table isn't available, allow (backwards compat)
+      console.debug("Session check skipped or failed:", err);
+    }
     
     if (!user || !user.isActive) {
       return res.status(401).json({ message: "Invalid or inactive user" });
