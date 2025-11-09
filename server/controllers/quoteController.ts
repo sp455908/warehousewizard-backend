@@ -228,7 +228,7 @@ export class QuoteController {
               "customer_confirmation_pending",
               "booking_confirmed",
               "rejected"
-            ] as any }
+            ] as QuoteStatus[] }
           },
           orderBy: { createdAt: 'desc' },
           include: {
@@ -629,7 +629,7 @@ export class QuoteController {
             <h2>Customer Confirmed Booking</h2>
             <p>Customer has confirmed the booking and it's ready for supervisor approval.</p>
             <p>Quote ID: ${id}</p>
-            <p>Customer: ${(updatedQuote.customer as any)?.firstName} ${(updatedQuote.customer as any)?.lastName}</p>
+            <p>Customer: ${updatedQuote.customer?.firstName || ''} ${updatedQuote.customer?.lastName || ''}</p>
             <p>Final Price: ₹${quote.finalPrice?.toLocaleString() || 'N/A'}</p>
             <p>Please review and confirm the booking.</p>
           `,
@@ -891,7 +891,7 @@ export class QuoteController {
               "quoted",
               // After supervisor approves, it becomes 'customer_confirmation_pending'
               "customer_confirmation_pending",
-            ] as any }
+            ] as QuoteStatus[] }
           },
           orderBy: { createdAt: 'desc' },
           include: {
@@ -913,7 +913,7 @@ export class QuoteController {
               "customer_confirmed", // Customer confirmed quotes awaiting supervisor approval (Step 7)
               "booking_confirmed", // Confirmed bookings
               "rejected" // Rejected quotes
-            ] as any }
+            ] as QuoteStatus[] }
           },
           orderBy: { createdAt: 'desc' },
           include: {
@@ -1008,9 +1008,9 @@ export class QuoteController {
           finalPrice,
           specialRequirements: notes ? `${quote.specialRequirements || ''}\nSales Notes: ${notes}` : quote.specialRequirements,
           // Move to supervisor review step per workflow
-          status: "supervisor_review_pending" as any
+          status: "supervisor_review_pending" as QuoteStatus
         },
-        include: { customer: true }
+        include: { customer: { select: { firstName: true, lastName: true, email: true } } }
       });
 
       // Send notification to supervisor
@@ -1021,7 +1021,7 @@ export class QuoteController {
           <h2>Quote Ready for Supervisor Review</h2>
           <p>A quote has been prepared by sales support and requires your review and approval.</p>
           <p>Quote ID: ${id}</p>
-          <p>Customer: ${(updatedQuote.customer as any).firstName} ${(updatedQuote.customer as any).lastName}</p>
+          <p>Customer: ${updatedQuote.customer?.firstName || ''} ${updatedQuote.customer?.lastName || ''}</p>
           <p>Final Price: ₹${finalPrice}</p>
           <p>Please review and approve before sending to customer.</p>
         `,

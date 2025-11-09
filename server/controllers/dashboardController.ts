@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { prisma } from "../config/prisma";
+import { QuoteStatus } from "@prisma/client";
 
 const db: any = prisma;
 
@@ -238,7 +239,7 @@ export class DashboardController {
           return [];
         }),
         prisma.quote.findMany({ 
-          where: { status: { in: ["supervisor_review_pending", "quoted", "customer_confirmation_pending", "customer_confirmed", "rate_confirmed", "approved", "booking_confirmed"] as any } },
+          where: { status: { in: ["supervisor_review_pending", "quoted", "customer_confirmation_pending", "customer_confirmed", "rate_confirmed", "approved", "booking_confirmed"] as QuoteStatus[] } },
           orderBy: { createdAt: 'desc' },
           include: { 
             customer: { select: { firstName: true, lastName: true, email: true, company: true } },
@@ -545,7 +546,7 @@ export class DashboardController {
 
   async getSupervisorStats() {
     const [pendingApprovals, confirmedBookings, completedBookings, pendingCargoDispatches] = await Promise.all([
-      prisma.quote.count({ where: { status: { in: ["supervisor_review_pending", "quoted", "customer_confirmation_pending", "customer_confirmed"] as any } } }),
+      prisma.quote.count({ where: { status: { in: ["supervisor_review_pending", "quoted", "customer_confirmation_pending", "customer_confirmed"] as QuoteStatus[] } } }),
       prisma.booking.count({ where: { status: "confirmed" } }),
       prisma.booking.count({ where: { status: "completed" } }),
       prisma.cargoDispatchDetail.count({ where: { status: "submitted" } })
