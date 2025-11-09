@@ -386,6 +386,7 @@ enum QuoteStatus {
   warehouse_quote_requested
   warehouse_quote_received
   rate_confirmed
+  supervisor_review_pending
   customer_confirmation_pending
   customer_confirmed
   booking_confirmed
