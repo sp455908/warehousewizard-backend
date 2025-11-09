@@ -545,7 +545,7 @@ export class DashboardController {
 
   async getSupervisorStats() {
     const [pendingApprovals, confirmedBookings, completedBookings, pendingCargoDispatches] = await Promise.all([
-      prisma.quote.count({ where: { status: { in: ["supervisor_review_pending", "quoted", "customer_confirmation_pending", "customer_confirmed"] } } }),
+      prisma.quote.count({ where: { status: { in: ["supervisor_review_pending", "quoted", "customer_confirmation_pending", "customer_confirmed"] as any } } }),
       prisma.booking.count({ where: { status: "confirmed" } }),
       prisma.booking.count({ where: { status: "completed" } }),
       prisma.cargoDispatchDetail.count({ where: { status: "submitted" } })

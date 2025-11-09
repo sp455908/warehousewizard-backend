@@ -228,7 +228,7 @@ export class QuoteController {
               "customer_confirmation_pending",
               "booking_confirmed",
               "rejected"
-            ] }
+            ] as any }
           },
           orderBy: { createdAt: 'desc' },
           include: {
@@ -891,7 +891,7 @@ export class QuoteController {
               "quoted",
               // After supervisor approves, it becomes 'customer_confirmation_pending'
               "customer_confirmation_pending",
-            ] }
+            ] as any }
           },
           orderBy: { createdAt: 'desc' },
           include: {
@@ -913,7 +913,7 @@ export class QuoteController {
               "customer_confirmed", // Customer confirmed quotes awaiting supervisor approval (Step 7)
               "booking_confirmed", // Confirmed bookings
               "rejected" // Rejected quotes
-            ] }
+            ] as any }
           },
           orderBy: { createdAt: 'desc' },
           include: {
@@ -1008,7 +1008,7 @@ export class QuoteController {
           finalPrice,
           specialRequirements: notes ? `${quote.specialRequirements || ''}\nSales Notes: ${notes}` : quote.specialRequirements,
           // Move to supervisor review step per workflow
-          status: "supervisor_review_pending"
+          status: "supervisor_review_pending" as any
         },
         include: { customer: true }
       });
