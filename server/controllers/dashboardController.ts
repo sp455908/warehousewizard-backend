@@ -238,7 +238,7 @@ export class DashboardController {
           return [];
         }),
         prisma.quote.findMany({ 
-          where: { status: { in: ["supervisor_review_pending", "quoted", "customer_confirmation_pending", "customer_confirmed", "rate_confirmed", "approved", "booking_confirmed"] } },
+          where: { status: { in: ["supervisor_review_pending", "quoted", "customer_confirmation_pending", "customer_confirmed", "rate_confirmed", "approved", "booking_confirmed"] as any } },
           orderBy: { createdAt: 'desc' },
           include: { 
             customer: { select: { firstName: true, lastName: true, email: true, company: true } },
