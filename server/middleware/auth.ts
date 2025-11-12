@@ -4,6 +4,7 @@ import { prisma } from "../config/prisma";
 import { sessionService } from "../services/sessionService";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 export interface AuthenticatedRequest extends Request {
   user?: any;
@@ -29,12 +30,25 @@ export const authenticateToken = async (
 
     // Verify session is active (if we persist sessions)
     try {
-      const sess = await sessionService.findSessionByToken(token);
-      if (!sess || !(sess as any).isActive) {
+      const sess: any = await sessionService.findSessionByToken(token);
+      if (!sess || !sess.isActive) {
         return res.status(401).json({ message: "Session inactive or invalid" });
       }
+
+      const now = Date.now();
+      const lastSeen = sess.lastSeen ? new Date(sess.lastSeen).getTime() : 0;
+      if (lastSeen && now - lastSeen > IDLE_TIMEOUT_MS) {
+        await sessionService.killSessionById(sess.id);
+        return res.status(401).json({ message: "Session expired due to inactivity" });
+      }
+
+      if (sess.expiresAt && new Date(sess.expiresAt).getTime() < now) {
+        await sessionService.killSessionById(sess.id);
+        return res.status(401).json({ message: "Session expired" });
+      }
+
+      await sessionService.updateLastSeen(sess.id);
     } catch (err) {
-      // If session table isn't available, allow (backwards compat)
       console.debug("Session check skipped or failed:", err);
     }
     

@@ -53,6 +53,13 @@ export class QuoteController {
           equipmentsRequirement: req.body.equipmentsRequirement,
           packagingRequirement: req.body.packagingRequirement,
           labourRequirement: req.body.labourRequirement,
+          // Support both old combined fields and new split fields
+          importerNameAndAddress: req.body.importerNameAndAddress,
+          importerName: req.body.importerName,
+          importerAddress: req.body.importerAddress,
+          exporterNameAndAddress: req.body.exporterNameAndAddress,
+          exporterName: req.body.exporterName,
+          exporterAddress: req.body.exporterAddress,
           remarks: req.body.remarks || req.body.salesNotes || req.body.additionalCharges || "No additional remarks"
         };
 

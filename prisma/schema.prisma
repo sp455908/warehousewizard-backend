@@ -437,12 +437,12 @@ enum InvoiceStatus {
 
 enum FormType {
   domestic_dry
+  domestic_reefer
   bonded_dry
   bonded_reefer
   cfs_import
-  cfs_export
   cfs_export_dry
-  refer_domestic_warehouse
+  cfs_export_reefer
 }
 
 enum RFQStatus {

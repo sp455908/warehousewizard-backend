@@ -48,8 +48,9 @@ app.use(cookieParser());
 app.use("/api", apiLimiter);
 
 // Body parsing
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+const bodyLimit = process.env.API_BODY_LIMIT || "10mb";
+app.use(express.json({ limit: bodyLimit }));
+app.use(express.urlencoded({ extended: false, limit: bodyLimit }));
 
 app.use((req, res, next) => {
   const start = Date.now();

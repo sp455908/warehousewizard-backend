@@ -350,13 +350,14 @@ export class DashboardController {
 
   async getAdminDashboard(req: AuthenticatedRequest, res: Response) {
     try {
-      const [recentUsers, systemStats] = await Promise.all([
+      const [recentUsers, systemStats, systemMetrics] = await Promise.all([
         prisma.user.findMany({ 
           orderBy: { createdAt: 'desc' },
           take: 10,
           select: { id: true, firstName: true, lastName: true, email: true, role: true, isActive: true, createdAt: true }
         }),
-        this.getSystemStats()
+        this.getSystemStats(),
+        this.getSystemMetrics()
       ]);
 
       const stats = await this.getAdminStats();
@@ -365,6 +366,7 @@ export class DashboardController {
         stats,
         recentUsers,
         systemStats,
+        systemMetrics,
       });
       return;
     } catch (error) {
@@ -621,6 +623,98 @@ export class DashboardController {
       usersByRole: formattedUsersByRole,
       warehousesByType: formattedWarehousesByType
     };
+  }
+
+  async getSystemMetrics() {
+    try {
+      const now = new Date();
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+      // Active Sessions (sessions active in last hour)
+      const activeSessions = await prisma.session.count({
+        where: {
+          isActive: true,
+          lastSeen: { gte: oneHourAgo }
+        }
+      });
+
+      // System Health calculation (based on various metrics)
+      const [totalUsers, activeUsers, totalWarehouses, activeWarehouses, totalQuotes, pendingQuotes, totalBookings, activeBookings] = await Promise.all([
+        prisma.user.count(),
+        prisma.user.count({ where: { isActive: true } }),
+        prisma.warehouse.count(),
+        prisma.warehouse.count({ where: { isActive: true } }),
+        prisma.quote.count(),
+        prisma.quote.count({ where: { status: { in: ["pending", "processing"] as QuoteStatus[] } } }),
+        prisma.booking.count(),
+        prisma.booking.count({ where: { status: { in: ["active", "confirmed"] } } })
+      ]);
+
+      // Calculate health score (0-100)
+      const userHealth = totalUsers > 0 ? (activeUsers / totalUsers) * 100 : 100;
+      const warehouseHealth = totalWarehouses > 0 ? (activeWarehouses / totalWarehouses) * 100 : 100;
+      const quoteHealth = totalQuotes > 0 ? Math.max(0, 100 - (pendingQuotes / totalQuotes) * 50) : 100;
+      const bookingHealth = totalBookings > 0 ? (activeBookings / totalBookings) * 50 : 50;
+      
+      const systemHealth = Math.round((userHealth * 0.3 + warehouseHealth * 0.3 + quoteHealth * 0.2 + bookingHealth * 0.2));
+
+      // Data Storage (estimate based on records)
+      const [userCount, quoteCount, bookingCount, invoiceCount] = await Promise.all([
+        prisma.user.count(),
+        prisma.quote.count(),
+        prisma.booking.count(),
+        prisma.invoice.count()
+      ]);
+
+      // Rough estimate: each record ~1KB average
+      const estimatedDataKB = (userCount + quoteCount + bookingCount + invoiceCount) * 1;
+      const estimatedDataMB = estimatedDataKB / 1024;
+      const estimatedDataGB = estimatedDataMB / 1024;
+      const estimatedDataTB = estimatedDataGB / 1024;
+      const totalCapacityTB = 3.5; // Total capacity in TB
+      const usedTB = Math.min(estimatedDataTB, totalCapacityTB);
+      const storagePercentage = Math.round((usedTB / totalCapacityTB) * 100);
+
+      // System Load (based on recent activity in last 24 hours)
+      const [recentQuotes, recentBookings, recentUsers] = await Promise.all([
+        prisma.quote.count({ where: { createdAt: { gte: oneDayAgo } } }),
+        prisma.booking.count({ where: { createdAt: { gte: oneDayAgo } } }),
+        prisma.user.count({ where: { createdAt: { gte: oneDayAgo } } })
+      ]);
+
+      // Calculate load percentage (0-100)
+      // Base load + activity factor
+      const baseLoad = 10;
+      const activityFactor = Math.min((recentQuotes * 2 + recentBookings * 3 + recentUsers * 1) / 10, 90);
+      const systemLoad = Math.round(Math.min(baseLoad + activityFactor, 100));
+
+      return {
+        activeSessions,
+        systemHealth,
+        dataStorage: {
+          percentage: storagePercentage,
+          used: usedTB.toFixed(2),
+          total: totalCapacityTB.toFixed(1),
+          unit: "TB"
+        },
+        systemLoad
+      };
+    } catch (error) {
+      console.error("Error calculating system metrics:", error);
+      // Return default values on error
+      return {
+        activeSessions: 0,
+        systemHealth: 100,
+        dataStorage: {
+          percentage: 0,
+          used: "0",
+          total: "3.5",
+          unit: "TB"
+        },
+        systemLoad: 0
+      };
+    }
   }
 }
 

@@ -121,13 +121,31 @@ export class WarehouseController {
       const warehouseData = req.body;
       const user = req.user!;
       
-      // Only warehouse users can create warehouses (admins cannot create warehouses)
-      if (user.role !== 'warehouse') {
-        return res.status(403).json({ message: "Only warehouse owners can create warehouses" });
+      if (user.role === 'warehouse') {
+        // Warehouse owners can only create warehouses for themselves
+        warehouseData.ownerId = user.id;
+      } else if (user.role === 'admin') {
+        // Admins must specify a warehouse owner
+        if (!warehouseData.ownerId) {
+          return res.status(400).json({ message: "Owner is required when creating a warehouse" });
+        }
+
+        // Verify owner exists and is an active warehouse user
+        const owner = await prisma.user.findUnique({
+          where: { id: warehouseData.ownerId },
+          select: { id: true, role: true, isActive: true }
+        });
+
+        if (
+          !owner ||
+          !['warehouse', 'admin'].includes(owner.role) ||
+          !owner.isActive
+        ) {
+          return res.status(400).json({ message: "Owner must be an active warehouse or admin user" });
+        }
+      } else {
+        return res.status(403).json({ message: "Only warehouse owners or admins can create warehouses" });
       }
-      
-      // Set owner to the current warehouse user
-      warehouseData.ownerId = user.id;
       
       const warehouse = await warehouseService.createWarehouse(warehouseData);
       res.status(201).json(warehouse);
@@ -183,6 +201,32 @@ export class WarehouseController {
         });
       }
       
+      // If admin is reassigning ownership, validate the new owner
+      if (updateData.ownerId) {
+        if (user.role !== 'admin') {
+          return res.status(403).json({
+            message: "Only administrators can transfer warehouse ownership",
+            code: "INSUFFICIENT_PERMISSIONS"
+          });
+        }
+
+        const newOwner = await prisma.user.findUnique({
+          where: { id: updateData.ownerId },
+          select: { id: true, role: true, isActive: true }
+        });
+
+        if (
+          !newOwner ||
+          !['warehouse', 'admin'].includes(newOwner.role) ||
+          !newOwner.isActive
+        ) {
+          return res.status(400).json({
+            message: "Owner must be an active warehouse or admin user",
+            code: "INVALID_OWNER"
+          });
+        }
+      }
+
       // Log the update for audit purposes
       console.log(`Warehouse update: User ${user.email} (${user.id}) updating warehouse "${existingWarehouse.name}" (${id})`);
       
@@ -407,14 +451,18 @@ export class WarehouseController {
         return res.status(403).json({ message: "Only administrators can transfer warehouse ownership" });
       }
       
-      // Verify new owner exists and is a warehouse user
+      // Verify new owner exists and is an allowed role
       const newOwner = await prisma.user.findUnique({
         where: { id: newOwnerId },
         select: { id: true, role: true, isActive: true }
       });
       
-      if (!newOwner || newOwner.role !== 'warehouse' || !newOwner.isActive) {
-        return res.status(400).json({ message: "Invalid warehouse user" });
+      if (
+        !newOwner ||
+        !['warehouse', 'admin'].includes(newOwner.role) ||
+        !newOwner.isActive
+      ) {
+        return res.status(400).json({ message: "Invalid warehouse or admin user" });
       }
       
       // Update warehouse ownership
@@ -451,8 +499,10 @@ export class WarehouseController {
       }
       
       const owners = await prisma.user.findMany({
-        where: { 
-          role: 'warehouse',
+        where: {
+          role: {
+            in: ['warehouse', 'admin']
+          },
           isActive: true
         },
         select: {
@@ -461,6 +511,7 @@ export class WarehouseController {
           lastName: true,
           email: true,
           company: true,
+          role: true,
           createdAt: true,
           _count: {
             select: {
@@ -468,7 +519,10 @@ export class WarehouseController {
             }
           }
         },
-        orderBy: { firstName: 'asc' }
+        orderBy: [
+          { role: 'asc' },
+          { firstName: 'asc' }
+        ]
       });
       
       res.json(owners);

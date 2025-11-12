@@ -22,8 +22,9 @@ export class AuthController {
         });
       }
       
-      // Force customer role for all registrations
-      const userRole = "customer";
+      // Allow only customer or warehouse roles from self-registration; default to customer
+      const allowedRoles = new Set(["customer", "warehouse"]);
+      const userRole = allowedRoles.has(userData.role) ? userData.role : "customer";
       
       // Check if user already exists
       const existingUser = await prisma.user.findUnique({ where: { email: userData.email } });
@@ -35,7 +36,7 @@ export class AuthController {
       const saltRounds = 12;
       const hashedPassword = await bcrypt.hash(userData.password, saltRounds);
 
-      // Create user with forced customer role
+      // Create user with selected role (customer or warehouse)
       const user = await prisma.user.create({
         data: {
           email: userData.email,
@@ -44,7 +45,7 @@ export class AuthController {
           lastName: userData.lastName,
           mobile: userData.mobile,
           company: userData.company,
-          role: userRole, // Always customer, never admin
+          role: userRole,
           isActive: true,
           isEmailVerified: false,
           isMobileVerified: false,
@@ -64,8 +65,7 @@ export class AuthController {
       try {
         const userAgent = req.headers["user-agent"] as string | undefined;
         const ipAddress = req.ip;
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        await sessionService.createSession({ userId: user.id, token, userAgent, ipAddress, expiresAt });
+        await sessionService.createSession({ userId: user.id, token, userAgent, ipAddress });
       } catch (err) {
         console.warn("Failed to persist session:", err);
       }
@@ -77,7 +77,7 @@ export class AuthController {
         html: `
           <h2>Welcome to Warehouse Wizard!</h2>
           <p>Hello ${user.firstName},</p>
-          <p>Your account has been created successfully.</p>
+          <p>Your account has been created successfully as a <strong>${user.role}</strong>.</p>
           <p>You can now start exploring our warehouse solutions.</p>
         `,
       });
@@ -132,8 +132,7 @@ export class AuthController {
       try {
         const userAgent = req.headers["user-agent"] as string | undefined;
         const ipAddress = req.ip;
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        await sessionService.createSession({ userId: user.id, token, userAgent, ipAddress, expiresAt });
+        await sessionService.createSession({ userId: user.id, token, userAgent, ipAddress });
       } catch (err) {
         console.warn("Failed to persist session:", err);
       }

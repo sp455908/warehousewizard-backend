@@ -18,6 +18,7 @@ const insertWarehouseSchema = z.object({
   features: z.array(z.string()).optional().default([]),
   imageUrl: z.string().optional(),
   isActive: z.boolean().default(true),
+  ownerId: z.string().optional(),
 });
 
 const updateWarehouseSchema = z.object({
@@ -57,7 +58,7 @@ router.post("/:id/check-availability", warehouseController.checkAvailability);
 // Warehouse management routes (only warehouse owners can create)
 router.post(
   "/",
-  authorizeRoles("warehouse"),
+  authorizeRoles("warehouse", "admin"),
   validateRequest(insertWarehouseSchema),
   warehouseController.createWarehouse
 );
@@ -75,15 +76,6 @@ router.patch(
   warehouseController.updateWarehouse
 );
 
-router.delete(
-  "/:id",
-  authorizeRoles("admin", "warehouse"),
-  warehouseController.deleteWarehouse
-);
-
-// This route must come last to avoid conflicts with specific routes
-router.get("/:id", warehouseController.getWarehouseById);
-
 router.post(
   "/transfer-ownership",
   authorizeRoles("admin"),
@@ -95,5 +87,14 @@ router.get(
   authorizeRoles("admin"),
   warehouseController.getWarehouseOwners
 );
+
+router.delete(
+  "/:id",
+  authorizeRoles("admin", "warehouse"),
+  warehouseController.deleteWarehouse
+);
+
+// This route must come last to avoid conflicts with specific routes
+router.get("/:id", warehouseController.getWarehouseById);
 
 export default router;

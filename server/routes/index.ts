@@ -20,6 +20,7 @@ import invoiceRequestRoutes from "./invoiceRequestRoutes";
 import workflowRoutes from "./workflowRoutes";
 import workflowStateRoutes from "./workflowStateRoutes";
 import panelDashboardRoutes from "./panelDashboardRoutes";
+import uploadRoutes from "./uploadRoutes";
 
 const router = Router();
 
@@ -45,6 +46,7 @@ router.use("/invoice-requests", invoiceRequestRoutes);
 router.use("/workflow", workflowRoutes);
 router.use("/workflow-state", workflowStateRoutes);
 router.use("/panel-dashboard", panelDashboardRoutes);
+router.use("/uploads", uploadRoutes);
 
 // Health check
 router.get("/health", (req, res) => {
