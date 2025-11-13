@@ -52,6 +52,8 @@ export class CartingController {
         }
       });
 
+      const customerEmail = (cartingDetail.booking as any)?.customer?.email;
+
       // Send notification to supervisor
       await notificationService.sendEmail({
         to: "supervisor@example.com", // TODO: Get actual supervisor email
@@ -67,6 +69,21 @@ export class CartingController {
           <p>Special Handling: ${cartingData.specialHandling || 'None'}</p>
         `,
       });
+
+      // Notify customer so they are aware of submitted carting details
+      if (customerEmail) {
+        await notificationService.sendEmail({
+          to: customerEmail,
+          subject: `Carting Details Submitted for Booking ${cartingData.bookingId}`,
+          html: `
+            <h2>Carting Details Submitted</h2>
+            <p>The warehouse has submitted carting details for your booking.</p>
+            <p><strong>Booking ID:</strong> ${cartingData.bookingId}</p>
+            <p><strong>Item:</strong> ${cartingDetail.itemDescription}</p>
+            <p><strong>Quantity:</strong> ${cartingDetail.quantity}</p>
+          `,
+        });
+      }
 
       res.status(201).json(cartingDetail);
       return;

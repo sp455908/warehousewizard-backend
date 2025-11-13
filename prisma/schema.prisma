@@ -133,6 +133,7 @@ model CargoDispatchDetail {
   weight          Float?
   dimensions      String?
   specialHandling String?
+  formData        Json?       // Store complete form data including attachments
   status          CargoStatus @default(submitted)
   approvedById    String?
   createdAt       DateTime    @default(now())

@@ -171,44 +171,9 @@ export class DeliveryRequestController {
         warehouseId: deliveryRequest.booking?.warehouseId
       });
 
-      // Create delivery advice (C26 → Delivery Advice)
-      const deliveryAdvice = await prisma.deliveryAdvice.create({
-        data: {
-          bookingId: deliveryRequest.bookingId,
-          customerId: deliveryRequest.customerId,
-          deliveryAddress: deliveryRequest.deliveryAddress,
-          preferredDate: deliveryRequest.preferredDate,
-          urgency: deliveryRequest.urgency,
-          status: "created",
-          instructions: `Delivery approved by supervisor. Original request: ${deliveryRequest.id}`
-        }
-      });
-
-      // Automatically create delivery order from delivery advice
-      const orderNumber = `DO-${Date.now()}-${deliveryRequest.bookingId.slice(-6)}`;
-      
-      try {
-        const deliveryOrder = await prisma.deliveryOrder.create({
-          data: {
-            deliveryAdviceId: deliveryAdvice.id,
-            bookingId: deliveryRequest.bookingId,
-            customerId: deliveryRequest.customerId,
-            warehouseId: deliveryRequest.booking.warehouseId,
-            orderNumber,
-            status: "created"
-          }
-        });
-        
-        console.log("Delivery order created successfully:", {
-          orderId: deliveryOrder.id,
-          orderNumber: deliveryOrder.orderNumber,
-          warehouseId: deliveryOrder.warehouseId
-        });
-      } catch (orderError) {
-        console.error("Failed to create delivery order:", orderError);
-        // Continue with the response even if delivery order creation fails
-        // The delivery advice was created successfully
-      }
+      // According to workflow: Supervisor approves delivery request
+      // Next step: Supervisor must manually create Delivery Advice by filling the form
+      // DO NOT automatically create delivery advice or delivery order here
 
       // Send notification to customer
       await notificationService.sendEmail({
@@ -221,27 +186,11 @@ export class DeliveryRequestController {
           <p><strong>Delivery Address:</strong> ${deliveryRequest.deliveryAddress}</p>
           <p><strong>Preferred Date:</strong> ${deliveryRequest.preferredDate.toLocaleDateString()}</p>
           <p><strong>Urgency:</strong> ${deliveryRequest.urgency}</p>
-          <p>Delivery advice has been created and will be processed by the warehouse.</p>
+          <p>The supervisor will now create a delivery advice for your request.</p>
         `,
       });
 
-      // Send notification to warehouse
-      await notificationService.sendEmail({
-        to: "warehouse@example.com", // TODO: Get actual warehouse email
-        subject: `Delivery Order Created - ${orderNumber}`,
-        html: `
-          <h2>Delivery Order Created</h2>
-          <p>A delivery order has been created for the following booking.</p>
-          <p><strong>Order Number:</strong> ${orderNumber}</p>
-          <p><strong>Booking ID:</strong> ${deliveryRequest.bookingId}</p>
-          <p><strong>Customer:</strong> ${deliveryRequest.booking.customer.firstName} ${deliveryRequest.booking.customer.lastName}</p>
-          <p><strong>Delivery Address:</strong> ${deliveryRequest.deliveryAddress}</p>
-          <p><strong>Preferred Date:</strong> ${deliveryRequest.preferredDate.toLocaleDateString()}</p>
-          <p>Please acknowledge and execute this delivery order.</p>
-        `,
-      });
-
-      res.json({ deliveryRequest, deliveryAdvice });
+      res.json({ deliveryRequest });
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to approve delivery request", error });

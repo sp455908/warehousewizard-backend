@@ -15,7 +15,8 @@ const insertCargoDispatchSchema = z.object({
   specialHandling: z.string().optional(),
   status: z.enum(["submitted", "approved", "processing", "completed"]).default("submitted"),
   approvedBy: z.string().optional(),
-});
+  formData: z.any().optional(), // Allow any form data structure
+}).passthrough(); // Allow additional fields to pass through
 
 // All cargo routes require authentication
 router.use(authenticateToken);

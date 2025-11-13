@@ -77,18 +77,9 @@ export class DeliveryAdviceController {
         }
       });
 
-      // Automatically create delivery order from delivery advice
-      const orderNumber = `DO-${Date.now()}-${bookingId.slice(-6)}`;
-      const deliveryOrder = await prisma.deliveryOrder.create({
-        data: {
-          deliveryAdviceId: deliveryAdvice.id,
-          bookingId,
-          customerId: booking.customerId,
-          warehouseId: booking.warehouseId,
-          orderNumber,
-          status: "created"
-        }
-      });
+      // According to workflow: Delivery Advice is created
+      // Next step: Supervisor must manually create Delivery Order separately
+      // DO NOT automatically create delivery order here
 
       // Send notification to customer and warehouse (non-blocking)
       notificationService.sendEmail({
@@ -107,31 +98,32 @@ export class DeliveryAdviceController {
           <p>Required Qty: ${deliveryAdvice.requiredQuantity ?? 'NA'}</p>
           <p>Billing Party: ${deliveryAdvice.billingParty ?? 'NA'}</p>
           <p>Remarks: ${deliveryAdvice.remarks ?? 'NA'}</p>
+          <p>The supervisor will create a delivery order next.</p>
         `,
       }).catch(() => {});
 
       notificationService.sendEmail({
         to: "warehouse@example.com", // TODO: Get actual warehouse email
-        subject: `Delivery Order Created - ${orderNumber}`,
+        subject: `Delivery Advice Created - Booking ${bookingId}`,
         html: `
-          <h2>Delivery Order Created</h2>
-          <p>A delivery order has been created for booking ${bookingId}.</p>
-          <p><strong>Order Number:</strong> ${orderNumber}</p>
+          <h2>Delivery Advice Created</h2>
+          <p>Delivery advice has been created for the following booking.</p>
+          <p>Booking ID: ${bookingId}</p>
+          <p>Booking Number: ${deliveryAdvice.bookingNumber || bookingId}</p>
           <p>Customer: ${(booking.customer as any).firstName} ${(booking.customer as any).lastName}</p>
           <p>Delivery Address: ${deliveryAddress}</p>
           <p>Preferred Date: ${new Date(preferredDate).toLocaleDateString()}</p>
           <p>Urgency: ${urgency || 'Standard'}</p>
           <p>Instructions: ${instructions || 'None'}</p>
-          <p>Booking Number: ${deliveryAdvice.bookingNumber || bookingId}</p>
           <p>Available Qty: ${deliveryAdvice.availableQuantity ?? 'NA'}</p>
           <p>Required Qty: ${deliveryAdvice.requiredQuantity ?? 'NA'}</p>
           <p>Billing Party: ${deliveryAdvice.billingParty ?? 'NA'}</p>
           <p>Remarks: ${deliveryAdvice.remarks ?? 'NA'}</p>
-          <p>Please acknowledge and execute this delivery order.</p>
+          <p>Waiting for delivery order to be created by supervisor.</p>
         `,
       }).catch(() => {});
 
-      res.status(201).json({ deliveryAdvice, deliveryOrder });
+      res.status(201).json({ deliveryAdvice });
       return;
     } catch (error) {
       return res.status(500).json({ message: "Failed to create delivery advice", error });

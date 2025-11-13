@@ -7,7 +7,28 @@ export class CargoController {
   async createCargoDispatch(req: AuthenticatedRequest, res: Response) {
     try {
       const cargoData = req.body;
-      console.log("[DEBUG] Creating cargo dispatch with data:", cargoData);
+      console.log("[DEBUG] Creating cargo dispatch with data:", JSON.stringify(cargoData, null, 2));
+      console.log("[DEBUG] FormData received:", cargoData.formData);
+      
+      // Prepare formData for Prisma - ensure it's a valid JSON object
+      let formDataJson = null;
+      if (cargoData.formData) {
+        // If it's already an object, use it directly
+        // If it's a string, parse it
+        if (typeof cargoData.formData === 'string') {
+          try {
+            formDataJson = JSON.parse(cargoData.formData);
+          } catch (e) {
+            console.error("[DEBUG] Error parsing formData string:", e);
+            formDataJson = cargoData.formData;
+          }
+        } else {
+          // It's already an object, use it directly
+          formDataJson = cargoData.formData;
+        }
+      }
+      
+      console.log("[DEBUG] FormData to save:", JSON.stringify(formDataJson, null, 2));
       
       const cargo = await prisma.cargoDispatchDetail.create({ data: {
         bookingId: cargoData.bookingId,
@@ -16,10 +37,12 @@ export class CargoController {
         weight: cargoData.weight ?? null,
         dimensions: cargoData.dimensions ?? null,
         specialHandling: cargoData.specialHandling ?? null,
+        formData: formDataJson,
         status: cargoData.status || 'submitted',
       } });
 
       console.log("[DEBUG] Cargo dispatch created successfully:", cargo);
+      console.log("[DEBUG] Saved formData:", cargo.formData);
       res.status(201).json(cargo);
       return;
     } catch (error) {
@@ -163,24 +186,57 @@ export class CargoController {
       const cargo = await prisma.cargoDispatchDetail.update({
         where: { id },
         data: { status: "approved", approvedById: supervisorId, updatedAt: new Date() as any },
-        include: { booking: true }
+        include: {
+          booking: {
+            include: {
+              customer: { select: { firstName: true, lastName: true, email: true } },
+              warehouse: {
+                select: {
+                  name: true,
+                  location: true,
+                  owner: { select: { firstName: true, lastName: true, email: true } }
+                }
+              }
+            }
+          }
+        }
       });
 
       if (!cargo) {
         return res.status(404).json({ message: "Cargo dispatch not found" });
       }
 
-      // Send notification
+      const booking = cargo.booking as any;
+      const customerEmail = booking?.customer?.email;
+      const warehouseEmail =
+        booking?.warehouse?.owner?.email || "warehouse@example.com";
+
+      // Notify warehouse
       await notificationService.sendEmail({
-        to: "warehouse@example.com", // TODO: Get warehouse email from booking
+        to: warehouseEmail,
         subject: "Cargo Dispatch Approved",
         html: `
           <h2>Cargo Dispatch Approved</h2>
-          <p>Cargo dispatch (ID: ${(cargo as any).id}) has been approved.</p>
-          <p>Item: ${(cargo as any).itemDescription}</p>
-          <p>Quantity: ${(cargo as any).quantity}</p>
+          <p>Cargo dispatch (ID: ${cargo.id}) has been approved.</p>
+          <p>Item: ${cargo.itemDescription}</p>
+          <p>Quantity: ${cargo.quantity}</p>
         `,
       });
+
+      // Notify customer
+      if (customerEmail) {
+        await notificationService.sendEmail({
+          to: customerEmail,
+          subject: "CDD Approved",
+          html: `
+            <h2>Cargo Dispatch Details Approved</h2>
+            <p>Your cargo dispatch details have been approved by the supervisor.</p>
+            <p><strong>Booking ID:</strong> ${cargo.bookingId}</p>
+            <p><strong>Item:</strong> ${cargo.itemDescription}</p>
+            <p><strong>Quantity:</strong> ${cargo.quantity}</p>
+          `,
+        });
+      }
 
       res.json(cargo);
       return;
