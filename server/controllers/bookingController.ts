@@ -660,26 +660,43 @@ export class BookingController {
           customer: { select: { firstName: true, lastName: true, email: true, company: true, id: true } },
           warehouse: { select: { name: true, location: true, city: true, state: true, id: true } },
           approvedBy: { select: { firstName: true, lastName: true, id: true } },
-          quote: { select: { storageType: true, requiredSpace: true, finalPrice: true } }
+          quote: { select: { id: true, storageType: true, requiredSpace: true, finalPrice: true } }
         }
       });
 
-      // Transform the data to match frontend expectations
-      const transformedBookings = bookings.map(booking => ({
-        id: booking.id,
-        customerName: `${booking.customer.firstName} ${booking.customer.lastName}`,
-        customerEmail: booking.customer.email,
-        storageType: booking.quote?.storageType || 'Unknown',
-        requiredSpace: booking.quote?.requiredSpace || 0,
-        assignedWarehouse: booking.warehouse?.name || 'Not assigned',
-        warehouseLocation: `${booking.warehouse?.city || ''}, ${booking.warehouse?.state || ''}`.trim(),
-        confirmedDate: booking.createdAt.toISOString(),
-        startDate: booking.startDate.toISOString(),
-        endDate: booking.endDate.toISOString(),
-        quoteAmount: booking.totalAmount,
-        status: booking.status,
-        daysRemaining: Math.ceil((new Date(booking.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-      }));
+      // Transform the data to match frontend expectations and attach warehouse-submitted rate (accepted RFQ rate)
+      const transformedBookings = await Promise.all(
+        bookings.map(async (booking) => {
+          const acceptedRate = await prisma.rate.findFirst({
+            where: {
+              status: "accepted" as any,
+              rfq: { quoteId: booking.quote?.id || "" },
+            },
+            select: { rate: true, termsAndConditions: true, remark: true },
+          });
+
+          return {
+            id: booking.id,
+            customerName: `${booking.customer.firstName} ${booking.customer.lastName}`,
+            customerEmail: booking.customer.email,
+            storageType: booking.quote?.storageType || 'Unknown',
+            requiredSpace: booking.quote?.requiredSpace || 0,
+            assignedWarehouse: booking.warehouse?.name || 'Not assigned',
+            warehouseLocation: `${booking.warehouse?.city || ''}, ${booking.warehouse?.state || ''}`.trim(),
+            confirmedDate: booking.createdAt.toISOString(),
+            startDate: booking.startDate.toISOString(),
+            endDate: booking.endDate.toISOString(),
+            quoteAmount: booking.totalAmount,
+            warehouseRate: acceptedRate?.rate ?? null,
+            warehouseTerms: acceptedRate?.termsAndConditions ?? null,
+            warehouseRemark: acceptedRate?.remark ?? null,
+            status: booking.status,
+            daysRemaining: Math.ceil(
+              (new Date(booking.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
+            ),
+          };
+        })
+      );
 
       res.json(transformedBookings);
       return;

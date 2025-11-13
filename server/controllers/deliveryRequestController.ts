@@ -7,7 +7,18 @@ export class DeliveryRequestController {
   // Customer creates delivery request (C25)
   async createDeliveryRequest(req: AuthenticatedRequest, res: Response) {
     try {
-      const { bookingId, deliveryAddress, preferredDate, urgency } = req.body;
+      const {
+        bookingId,
+        deliveryAddress,
+        preferredDate,
+        urgency,
+        transporterContactPerson,
+        transporterContactDetails,
+        billingParty,
+        remarks,
+        availableQuantity,
+        requiredQuantity
+      } = req.body;
       const customerId = (req.user! as any).id || (req.user! as any)._id?.toString();
 
       // Only customers can create delivery requests
@@ -48,7 +59,13 @@ export class DeliveryRequestController {
           deliveryAddress,
           preferredDate: new Date(preferredDate),
           urgency: urgency || "standard",
-          status: "requested"
+          status: "requested",
+          transporterContactPerson: transporterContactPerson || null,
+          transporterContactDetails: transporterContactDetails || null,
+          billingParty: billingParty || null,
+          remarks: remarks || null,
+          availableQuantity: typeof availableQuantity === "number" ? availableQuantity : null,
+          requiredQuantity: typeof requiredQuantity === "number" ? requiredQuantity : null
         },
         include: {
           booking: {

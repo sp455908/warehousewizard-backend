@@ -152,6 +152,12 @@ model DeliveryRequest {
   status          DeliveryStatus  @default(requested)
   assignedDriver  String?
   trackingNumber  String?
+  transporterContactPerson  String?
+  transporterContactDetails String?
+  billingParty             String?
+  remarks                  String?
+  availableQuantity        Int?
+  requiredQuantity         Int?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   booking         Booking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
